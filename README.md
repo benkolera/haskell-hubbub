@@ -4,11 +4,11 @@ haskell-hubub
 A haskell implementation of the PubSubHubub spec:
 https://code.google.com/p/pubsubhubbub/
 
-This code is being written as a teaching aid for the [www.bfpg.org|Brisbane Functional
-Programming Group] to teach practical haskell things like project structure,
-testing, using acid-state for persistence, consuming web apis using
+This code is being written as a teaching aid for the Brisbane Functional
+Programming Group (www.bfpg.org) to teach practical haskell things like project
+structure, testing, using acid-state for persistence, consuming web apis using
 http-conduit, producing web apis with scotty and simple in memory message
-queuing using STM TChannels.
+queuing using STM TChannels. 
 
 PubSubHubbub Protocol Description
 ---------------------------------
