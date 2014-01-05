@@ -6,14 +6,15 @@ module Network.Hubbub.SubscriptionDb where
 import Control.Monad.State(modify,get,put)
 import Control.Monad.Reader(ask)
 import Control.Applicative((<$>))
-import Data.Acid
-import Data.Typeable
-import Data.SafeCopy
+import Data.Acid (Query,Update,makeAcidic)
+import Data.Typeable (Typeable)
+import Data.SafeCopy (deriveSafeCopy,base)
 import Data.Time(UTCTime)
 import Data.Maybe(fromMaybe)
 import qualified Data.Map as Map
 import Data.Text(Text)
 import Network.URL(URL,URLType,Host,Protocol)
+
 
 $(deriveSafeCopy 0 'base ''Protocol)
 $(deriveSafeCopy 0 'base ''Host)
