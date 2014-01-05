@@ -1,12 +1,13 @@
 module Network.Hubbub.SubscriptionDb.Test (subscriptionDbSuite) where
 
+import Network.Hubbub.SubscriptionDb
+import Network.Hubbub.TestHelpers
+
 import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.HUnit
-import Network.Hubbub.SubscriptionDb
 import qualified Data.Map as Map
 import Data.Time
 import Data.Acid.Memory.Pure
-import Network.URL
 import Data.Text
 
 subscriptionDbSuite :: TestTree
@@ -50,14 +51,5 @@ testGetAll = do
       liftQuery getAllSubscriptions
     addSub n t = addSubscription (topic n) (callback n) $ subscription t "foo"
 
-topic :: String -> Topic
-topic n    = Topic $ url "publish.com" ("/topic/" ++ n)
-
-callback :: String -> Callback
-callback n = Callback $ url "subscribe.com" ("/callback/" ++ n)
-
-url :: String -> String -> URL
-url hostNm path = URL (Absolute $ Host (HTTP False) hostNm Nothing) path []
-
-subscription :: UTCTime -> String -> Subscription
-subscription t n = Subscription t Nothing Nothing (Just . From . pack $ n)
+subscription :: UTCTime -> Text -> Subscription
+subscription t n = Subscription t Nothing Nothing (Just . From $ n)

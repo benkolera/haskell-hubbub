@@ -2,10 +2,13 @@ module Network.Hubbub.Queue
   ( LeaseSeconds (..)
   , Mode (..)
   , SubscriptionEvent (..)
+  , PublicationEvent (..)
+  , emptySubscriptionQueue
+  , emptyPublicationQueue
   , subscribe
   , publish
   , subscriptionLoop
-  , publishLoop
+  , publicationLoop
   ) where
 
 import Network.Hubbub.SubscriptionDb
@@ -16,14 +19,14 @@ import Network.Hubbub.SubscriptionDb
   )
   
 import Control.Concurrent.STM(STM,atomically)
-import Control.Concurrent.STM.TQueue(TQueue,writeTQueue,readTQueue)
+import Control.Concurrent.STM.TQueue(TQueue,writeTQueue,readTQueue,newTQueue)
 
-newtype LeaseSeconds = LeaseSeconds Integer deriving (Show)
+newtype LeaseSeconds = LeaseSeconds Integer deriving (Show,Eq)
 
 data Mode =
   SubscribeMode
   | UnsubscribeMode
-  deriving (Show)
+  deriving (Show,Eq)
 
 data SubscriptionEvent =
   SubscriptionEvent
@@ -33,19 +36,27 @@ data SubscriptionEvent =
   (Maybe LeaseSeconds)
   (Maybe Secret)
   (Maybe From)
-  deriving (Show)
+  deriving (Show,Eq)
+
+data PublicationEvent = PublicationEvent Topic deriving (Eq,Show)
+
+emptySubscriptionQueue :: STM (TQueue SubscriptionEvent)
+emptySubscriptionQueue = newTQueue
 
 subscribe :: TQueue SubscriptionEvent -> SubscriptionEvent -> STM ()
 subscribe = writeTQueue 
 
-publish :: TQueue Topic -> Topic -> STM ()
+emptyPublicationQueue :: STM (TQueue PublicationEvent)
+emptyPublicationQueue = newTQueue
+
+publish :: TQueue PublicationEvent -> PublicationEvent -> STM ()
 publish = writeTQueue
 
 nextSubscriptionEvent :: TQueue SubscriptionEvent -> STM SubscriptionEvent
 nextSubscriptionEvent = readTQueue
 
-nextPublishEvent :: TQueue Topic -> STM Topic
-nextPublishEvent = readTQueue
+nextPublicationEvent :: TQueue PublicationEvent -> STM PublicationEvent
+nextPublicationEvent = readTQueue
 
 queueLoop :: (TQueue a -> STM a) -> (a -> IO ()) -> TQueue a -> IO ()
 queueLoop pop f q = loop
@@ -57,5 +68,5 @@ queueLoop pop f q = loop
 subscriptionLoop :: (SubscriptionEvent -> IO ()) -> TQueue SubscriptionEvent -> IO ()
 subscriptionLoop = queueLoop nextSubscriptionEvent
 
-publishLoop :: (Topic -> IO ()) -> TQueue Topic -> IO ()
-publishLoop = queueLoop nextPublishEvent
+publicationLoop :: (PublicationEvent -> IO ()) -> TQueue PublicationEvent -> IO ()
+publicationLoop = queueLoop nextPublicationEvent
