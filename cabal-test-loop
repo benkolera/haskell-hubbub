@@ -1,0 +1,17 @@
+files="*.cabal src test"
+exclude="(\.#.*|flymake).hs$"
+
+do_build() {
+  cabal build && (cabal test || cat dist/test/*-Tests.log) 
+}
+
+cabal configure --enable-tests --flag="testing"
+
+if test $(which inotifywait) ; then 
+  while $(inotifywait -qq -r --exclude $exclude -e modify -e create -e move $files) ; do
+    do_build
+  done;  
+else
+  echo "This script requires inotifywait(1) and your system does not have it. If you are on OSX, try cabal install hobbes to get similar functionality to inotifywait and roll your own." >&2;
+  exit 1;
+fi

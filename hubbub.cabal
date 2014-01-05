@@ -1,7 +1,13 @@
 name:                   hubbub
 version:                0.1.0.0
 synopsis:               Hub implementation of the PubSubHubbub spec ( https://code.google.com/p/pubsubhubbub/ )
--- description:
+description:            The intent of this server is to allow low latency subscription
+                        to HTTP resources. The idea is that the publisher adds a 
+                        hyperlink to their resource (in the response header, meta tags
+                        etc) to a PubSubHubbub server. The subscriber can then 
+                        register a url to call back to when subscribed resource 
+                        that should be quicker and more scalable than each subscriber
+                        polling for changes. 
 homepage:               http://github.com/benkolera/haskell-hubbub
 license:                MIT
 license-file:           LICENSE
@@ -11,45 +17,90 @@ category:               Unknown
 build-type:             Simple
 cabal-version:          >=1.10
 
-executable hubbub
-  main-is:              Main.hs
-  build-depends:        base >=4.6 && <4.7
+Flag testing
+  Default: False
+  Description:          Set this to true if we don't want to build the lib and exe 
+                        to speed up testing (don't want to build the lib twice). 
 
+executable hubbub
+  if !flag(testing)
+    Buildable:          True          
+  else
+    Buildable:          False
+
+  main-is:              Main.hs
+
+  build-depends:        base ==4.6.*
+                        , hubbub
   hs-source-dirs:       src
   ghc-options:          -Wall
   default-language:     Haskell2010
+
+
 
 library
-  exposed-modules:      Hubbub
-                      , Hubbub.Subscriptions
-  build-depends:        base >=4.6 && <4.7
-                      , safecopy == 0.8.*
-                      , acid-state == 0.12.*
-                      , mtl == 2.1.*
-                      , time == 1.4.*
-                      , containers == 0.5.*
-                      , text == 1.0.*
-  ghc-options:          -Wall
+  if !flag(testing)
+    exposed-modules:    Network.Hubbub
+  else
+    exposed-modules:    
+
+  build-depends:        base == 4.*
+                      , acid-state >= 0.12.1
+                      , aeson >= 0.6.2.1
+                      , base >= 4.6.0.1
+                      , bytestring >= 0.10.0.2
+                      , conduit >= 1.0.9.3
+                      , containers >= 0.5.0.0
+                      , datetime >= 0.2.1
+                      , either >= 4.1
+                      , errors >= 1.4.5
+                      , failure >= 0.2.0.1
+                      , http-conduit >= 2.0.0.3
+                      , mtl >= 2.1.2
+                      , safecopy >= 0.8.2
+                      , stm >= 2.4.2
+                      , text >= 1.0.0.1
+                      , time >= 1.4.0.1
+                      , transformers >= 0.3.0.0
+                      , url >= 2.1.3
+  ghc-options:          -rtsopts
+                        -Wall
+                        -O2
   hs-source-dirs:       src
+  default-extensions:   OverloadedStrings
   default-language:     Haskell2010
 
+
 test-suite Tests
-  hs-source-dirs:       test
+  hs-source-dirs:       src
+                        test
+  ghc-options:          -rtsopts
+                        -Wall
+                        -O2
   ghc-options:          -Wall
   main-is:              Test.hs
   Type:                 exitcode-stdio-1.0
+  default-extensions:   OverloadedStrings
   default-language:     Haskell2010
-  build-depends:        base ==4.6.*, Cabal >= 1.16.0
-                        , hubbub
-                        , containers
-                        , HUnit
-                        , QuickCheck
-                        , smallcheck
-                        , tasty
-                        , tasty-hunit
-                        , tasty-quickcheck
-                        , tasty-smallcheck
-                        , time
-                        , mtl
-                        , acid-state
-          
+  build-depends:        base == 4.*
+                      , acid-state >= 0.12.1
+                      , aeson >= 0.6.2.1
+                      , base >= 4.6.0.1
+                      , bytestring >= 0.10.0.2
+                      , conduit >= 1.0.9.3
+                      , containers >= 0.5.0.0
+                      , datetime >= 0.2.1
+                      , either >= 4.1
+                      , errors >= 1.4.5
+                      , failure >= 0.2.0.1
+                      , http-conduit >= 2.0.0.3
+                      , mtl >= 2.1.2
+                      , safecopy >= 0.8.2
+                      , stm >= 2.4.2
+                      , text >= 1.0.0.1
+                      , time >= 1.4.0.1
+                      , transformers >= 0.3.0.0
+                      , url >= 2.1.3
+                      , HUnit >= 1.2.5.2
+                      , tasty >= 0.7
+                      , tasty-hunit >= 0.4.1 
