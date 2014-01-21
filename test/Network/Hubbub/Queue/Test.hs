@@ -3,16 +3,22 @@ module Network.Hubbub.Queue.Test (queueSuite) where
 import Network.Hubbub.Queue
 import Network.Hubbub.TestHelpers
 
-import Test.Tasty (testGroup, TestTree)
-import Test.Tasty.HUnit
-import Control.Concurrent.STM
-import Data.Text (Text)
-import Control.Concurrent.MVar (newEmptyMVar,putMVar,takeMVar)
 import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar,putMVar,takeMVar)
+import Control.Concurrent.STM (STM,TQueue,atomically)
+import Data.Function (($))
+import Data.Eq (Eq)
+import Data.Maybe (Maybe(Nothing,Just))
+import Data.Text (Text)
+import System.Timeout (timeout)
+import System.IO (IO)
+import Test.Tasty (testGroup, TestTree)
+import Test.Tasty.HUnit ((@?=),Assertion,testCase)
+import Text.Show (Show)
 
 queueSuite :: TestTree
-queueSuite = testGroup "Queue" [
-  testCase "subscribe" testSubscribe
+queueSuite = testGroup "Queue" 
+  [ testCase "subscribe" testSubscribe
   , testCase "publish" testPublish
   ]
 
@@ -27,8 +33,8 @@ loopTest mkQueue enqueue loop e = do
   q     <- atomically mkQueue 
   _     <- forkIO $ loop (putMVar mVar) q
   atomically $ enqueue q e
-  event <- takeMVar mVar
-  e @=? event
+  event <- timeout 5000000 $ takeMVar mVar
+  Just e @?= event
 
 testSubscribe :: Assertion 
 testSubscribe = 

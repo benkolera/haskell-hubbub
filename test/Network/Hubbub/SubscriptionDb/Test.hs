@@ -3,12 +3,13 @@ module Network.Hubbub.SubscriptionDb.Test (subscriptionDbSuite) where
 import Network.Hubbub.SubscriptionDb
 import Network.Hubbub.TestHelpers
 
+import Prelude (($),(.),Maybe(Nothing,Just),fst,snd)
 import Test.Tasty (testGroup, TestTree)
-import Test.Tasty.HUnit
+import Test.Tasty.HUnit ((@=?),testCase,Assertion)
 import qualified Data.Map as Map
-import Data.Time
-import Data.Acid.Memory.Pure
-import Data.Text
+import Data.Time (getCurrentTime,UTCTime)
+import Data.Acid.Memory.Pure (runUpdate,liftQuery,runQuery)
+import Data.Text (Text)
 
 subscriptionDbSuite :: TestTree
 subscriptionDbSuite = testGroup "SubscriptionDb" [

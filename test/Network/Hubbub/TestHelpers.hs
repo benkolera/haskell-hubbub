@@ -1,15 +1,17 @@
-module Network.Hubbub.TestHelpers (topic,callback,url) where
+module Network.Hubbub.TestHelpers (topic,callback,resource) where
 
-import Network.Hubbub.SubscriptionDb
-import Network.URL
-import Data.Text
+import Network.Hubbub.SubscriptionDb 
+  ( HttpResource(HttpResource)
+  , Topic(Topic)
+  , Callback(Callback))
+import Prelude (($),Bool(False),Maybe(Nothing),undefined)
+import Data.Text (append,Text)
 
 topic :: Text -> Topic
-topic n    = Topic $ url "publish.com" ("/topic/" `append` n)
+topic n    = Topic $ resource "publish.com" ("/topic/" `append` n)
 
 callback :: Text -> Callback
-callback n = Callback $ url "subscribe.com" ("/callback/" `append` n)
+callback n = Callback $ resource "subscribe.com" ("/callback/" `append` n)
 
-url :: Text -> Text -> URL
-url hostNm path = 
-  URL (Absolute $ Host (HTTP False) (unpack hostNm) Nothing) (unpack path) []
+resource :: Text -> Text -> HttpResource
+resource host path = HttpResource False host 80 path []
