@@ -45,8 +45,8 @@ subscriptionThread acid = subscriptionLoop doSubscribe
          _    <- update acid (AddSubscription t cb $ createDbSub time ls s f)
          return ()
     checkSubscriber t cb m ls = return True
-    createDbSub t ls s f = Subscription t (expiry t ls) s f
-    expiry time ls = fmap (\ (LeaseSeconds s) -> addSeconds s time) ls 
+    createDbSub t ls = Subscription t (expiry t ls)
+    expiry time = fmap (\ (LeaseSeconds s) -> addSeconds s time) 
 
 
 publishThread :: TQueue Topic -> IO ()

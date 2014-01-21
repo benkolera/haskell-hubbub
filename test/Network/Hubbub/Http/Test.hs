@@ -7,13 +7,15 @@ import Network.Hubbub.Http
   , getPublishedResource
   , publishResource )
 
-import Network.Hubbub.Queue 
-  ( SubscriptionEvent(SubscriptionEvent) 
-  , Mode (SubscribeMode))
+import Network.Hubbub.Queue
+  ( SubscriptionEvent(SubscribeEvent,UnsubscribeEvent)
+  , LeaseSeconds(LeaseSeconds))
+  
 import Network.Hubbub.SubscriptionDb 
   ( Topic (Topic)
   , Callback (Callback)
   , HttpResource(HttpResource)
+
   , Secret(Secret))
 import Network.Hubbub.TestHelpers ()
 
@@ -124,8 +126,9 @@ checkSubscriptionSuite :: TestTree
 checkSubscriptionSuite = testGroup "CheckSubscription"
   [ testCase "basic"                  basicCheckSubscriptionTest
   , testCase "keep params"            keepParamsCheckSubscriptionTest  
-  , testCase "fail verify"            failVerifySubscriptionTest
-  , testCase "bad challenge response" badChallengeVerifySubscriptionTest ]
+  , testCase "fail verify"            failCheckSubscriptionTest
+  , testCase "bad challenge response" badChallengeCheckSubscriptionTest
+  , testCase "unsubscribe"            unsubscribeCheckSubscriptionTest ]
 
 callbackTest :: CallbackHandler -> Assertion -> Assertion
 callbackTest handler = scottyTest (callbackM handler)
@@ -135,15 +138,25 @@ basicCheckSubscriptionTest = callbackTest handleCallback $ do
   res <- runCheckSubscription event
   res @?= True
   where
-    handleCallback "subscribe" "http://localhost:3000/topic" c _ = text c
+    handleCallback "subscribe" "http://localhost:3000/topic" c (Just 1337) =
+      text c
     handleCallback _ _ _ _ = status status404
-    event = SubscriptionEvent
+    event = SubscribeEvent
             (localTopic [])
             (localCallback [])
-            SubscribeMode
+            (LeaseSeconds 1337)
             Nothing
             Nothing
-            Nothing
+
+unsubscribeCheckSubscriptionTest :: Assertion
+unsubscribeCheckSubscriptionTest = callbackTest handleCallback $ do
+  res <- runCheckSubscription event
+  res @?= True
+  where
+    handleCallback "unsubscribe" "http://localhost:3000/topic" c Nothing =
+      text c
+    handleCallback _ _ _ _ = status status404
+    event = UnsubscribeEvent (localTopic []) (localCallback [])
 
 keepParamsCheckSubscriptionTest :: Assertion
 keepParamsCheckSubscriptionTest = callbackTest handleCallback $ do
@@ -154,50 +167,46 @@ keepParamsCheckSubscriptionTest = callbackTest handleCallback $ do
       "subscribe"
       "http://localhost:3000/topic?paramA=1&paramB=foo+bar&paramA=2"
       c
-      _
+      (Just 1337)
       = do
         -- TODO: This is a bit crap. But the Parsable [a] instance doesn't grab
         -- both out. (pAs <- param "pA" :: ActionM [Int] results in pAs = [13])
         ps <- filter (liftA2 (||) (== "pA") (== "pB") . fst) <$> params
-        unless (ps == fmap (join (***) TL.fromStrict) topicParams) $ do
-          liftIO . putStrLn $ show ps
+        unless (ps == fmap (join (***) TL.fromStrict) topicParams) $
           raise "ParamA and ParamB didn't match"
         text c
     handleCallback _ _ _ _ = status status404
-    event = SubscriptionEvent
+    event = SubscribeEvent
             (localTopic [("paramA","1"),("paramB","foo bar"),("paramA","2")])
             (localCallback topicParams)
-            SubscribeMode
-            Nothing
+            (LeaseSeconds 1337)
             Nothing
             Nothing
     topicParams = [("pA","13"),("pA","37"),("pB","a b"),("pB","b c")]
 
-failVerifySubscriptionTest :: Assertion
-failVerifySubscriptionTest = callbackTest handleCallback $ do
+failCheckSubscriptionTest :: Assertion
+failCheckSubscriptionTest = callbackTest handleCallback $ do
   res <- runCheckSubscription event
   res @?= False
   where
     handleCallback _ _ _ _ = status status404
-    event = SubscriptionEvent
+    event = SubscribeEvent
             (localTopic [])
             (localCallback [])
-            SubscribeMode
-            Nothing
+            (LeaseSeconds 1337)
             Nothing
             Nothing
 
-badChallengeVerifySubscriptionTest :: Assertion
-badChallengeVerifySubscriptionTest = callbackTest handleCallback $ do
+badChallengeCheckSubscriptionTest :: Assertion
+badChallengeCheckSubscriptionTest = callbackTest handleCallback $ do
   res <- runCheckSubscription event
   res @?= False
   where
     handleCallback _ _ _ _ = text "not a valid challenge response"
-    event = SubscriptionEvent
+    event = SubscribeEvent
             (localTopic [])
             (localCallback [])
-            SubscribeMode
-            Nothing
+            (LeaseSeconds 1337)
             Nothing
             Nothing            
 

@@ -1,12 +1,9 @@
 module Network.Hubbub.Queue 
   ( LeaseSeconds (..)
-  , Mode (..)
   , SubscriptionEvent (..)
   , PublicationEvent (..)
   , emptySubscriptionQueue
   , emptyPublicationQueue
-  , modeFromText
-  , modeToText
   , subscribe
   , publish
   , subscriptionLoop
@@ -26,35 +23,15 @@ import Control.Concurrent.STM(STM,atomically)
 import Control.Concurrent.STM.TQueue(TQueue,writeTQueue,readTQueue,newTQueue)
 import Data.Eq (Eq)
 import Data.Function ((.),($))
-import Data.Maybe (Maybe(Just,Nothing))
-import Data.Text (Text)
+import Data.Maybe (Maybe)
 import Text.Show (Show)
 import System.IO (IO)
 
 newtype LeaseSeconds = LeaseSeconds Integer deriving (Show,Eq)
 
-data Mode =
-  SubscribeMode
-  | UnsubscribeMode
-  deriving (Eq,Show)
-
-modeToText :: Mode -> Text
-modeToText SubscribeMode   = "subscribe"
-modeToText UnsubscribeMode = "unsubscribe"
-
-modeFromText :: Text -> Maybe Mode
-modeFromText "subscribe"   = Just SubscribeMode
-modeFromText "unsubscribe" = Just SubscribeMode
-modeFromText _             = Nothing
-
 data SubscriptionEvent =
-  SubscriptionEvent
-  Topic
-  Callback
-  Mode
-  (Maybe LeaseSeconds)
-  (Maybe Secret)
-  (Maybe From)
+  SubscribeEvent Topic Callback LeaseSeconds (Maybe Secret) (Maybe From)
+  | UnsubscribeEvent Topic Callback
   deriving (Show,Eq)
 
 data PublicationEvent = PublicationEvent Topic deriving (Eq,Show)

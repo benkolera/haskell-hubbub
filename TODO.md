@@ -1,6 +1,5 @@
 Mandatory
 =========
-* Lease seconds should be passed through in Http.checkSubscriptions
 * Hubbub.subscriptionThread.checkSubscriber should wire into Http.checkSubscription
 * Hubbub.publishThread needs to:
 ** Use a function in another file that isn't tied into the loop.
@@ -14,3 +13,4 @@ Optional
 ========
 * Time lens instead of Data.DateTime
 * Lens for HttpResource
+* Expiration of subscriptions.

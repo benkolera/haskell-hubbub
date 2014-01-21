@@ -42,7 +42,7 @@ testSubscribe =
     emptySubscriptionQueue 
     subscribe 
     subscriptionLoop 
-    (subscriptionEvent "a" SubscribeMode)
+    (subscribeEvent "a")
     
 testPublish :: Assertion 
 testPublish = 
@@ -52,9 +52,9 @@ testPublish =
     publicationLoop 
     (publicationEvent "a")
 
-subscriptionEvent :: Text -> Mode -> SubscriptionEvent
-subscriptionEvent n m = 
-  SubscriptionEvent (topic n) (callback n) m Nothing Nothing Nothing
+subscribeEvent :: Text -> SubscriptionEvent
+subscribeEvent n =
+  SubscribeEvent (topic n) (callback n) (LeaseSeconds 1337) Nothing Nothing
 
 publicationEvent :: Text -> PublicationEvent
 publicationEvent n = PublicationEvent (topic n)

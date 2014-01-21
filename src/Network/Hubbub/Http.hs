@@ -11,12 +11,14 @@ import Network.Hubbub.SubscriptionDb
   ( Callback(Callback)
   , HttpResource (HttpResource)
   , Secret 
-  , Topic (Topic)    
+  , Topic (Topic)
   , httpResourceToText
   , httpResourceQueryString
   )
   
-import Network.Hubbub.Queue (SubscriptionEvent (SubscriptionEvent),modeToText)
+import Network.Hubbub.Queue
+  ( SubscriptionEvent(SubscribeEvent,UnsubscribeEvent)
+  , LeaseSeconds(LeaseSeconds))
   
 import Prelude (IO,undefined,Int)
 import Control.Arrow ((&&&))
@@ -34,9 +36,9 @@ import Data.Function (($),(.),const)
 import Data.Functor (fmap)
 import Data.Eq ((==),Eq)
 import Data.List (map,take,find,filter,elem,(++))
-import Data.Maybe (Maybe(Nothing),fromMaybe,maybe)
+import Data.Maybe (Maybe(Just,Nothing),fromMaybe,maybe)
 import Data.Ord ((<=),(>=))
-import Data.Text (pack)
+import Data.Text (Text,pack)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Tuple (fst,snd)
 import Network.HTTP.Conduit 
@@ -60,7 +62,7 @@ import Network.HTTP.Conduit
   , withManager
   )
 import Network.HTTP.Types ( Status(Status) , statusCode , hContentType) 
-import Text.Show (Show)
+import Text.Show (Show,show)
 import System.Random (RandomGen,randomRs)
 
 data HttpError =
@@ -115,19 +117,25 @@ publishResource sec (Callback cRes) (Topic tRes) (ServerUrl sRes) ct body =
         
       
 checkSubscription :: RandomGen r => r -> SubscriptionEvent -> HttpCall Bool
-checkSubscription rng (SubscriptionEvent (Topic tRes) (Callback cRes) m _ _ _) = 
-  handleT hush404 $
-    checkChallenge <$> doHttp (httpResourceToRequest $ addQueryParams cRes)
+checkSubscription rng ev = case ev of
+  (SubscribeEvent t c ls _ _) -> check t c "subscribe" (Just ls)
+  (UnsubscribeEvent t c)      -> check t c "unsubscribe" Nothing
   where
+    check :: Topic -> Callback -> Text -> Maybe LeaseSeconds -> HttpCall Bool
+    check (Topic t) (Callback c) m ls = handleT hush404 $
+      checkChallenge <$> doHttp (httpResourceToRequest $ addQueryParams t m ls c)
+      
     -- TODO: This is crap. Should write a lens for HttpResource.
-    addQueryParams (HttpResource s h prt pth qps) =
+    addQueryParams t m ls (HttpResource s h prt pth qps) =
       HttpResource s h prt pth $
-        filter (not . isHubHeader) qps ++ [
-          ("hub.mode", modeToText m)
-          , ("hub.topic", httpResourceToText tRes )
-          , ("hub.challenge",challenge)
-          ] 
+        filter (not . isHubHeader) qps ++ (
+          ("hub.mode", m) :
+          ("hub.topic", httpResourceToText t ) :
+          ("hub.challenge",challenge) :
+          maybe [] ((:[]) . leaseSecondHeader) ls
+          )
     isHubHeader (hn,_) = hn `elem` ["hub.mode","hub.topic","hub.challenge"]
+    leaseSecondHeader (LeaseSeconds s) = ("hub.leaseSeconds",pack . show $ s)
     checkChallenge c =
       ((statusCode . responseStatus $ c) == 200) &&
       (responseBody c == BsL.fromStrict (encodeUtf8 challenge))
