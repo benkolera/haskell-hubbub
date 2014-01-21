@@ -12,5 +12,5 @@ Mandatory
 
 Optional
 ========
-** Time lens instead of Data.DateTime
-** Lens for HttpResource.
+* Time lens instead of Data.DateTime
+* Lens for HttpResource
