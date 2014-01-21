@@ -3,13 +3,11 @@ module Network.Hubbub.Hmac.Test (hmacSuite) where
 import Network.Hubbub.Hmac (hmacBody)
 import Network.Hubbub.SubscriptionDb (Secret(Secret))
 
-import Prelude
-
 import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.HUnit (Assertion,testCase,(@=?))
 
 hmacSuite :: TestTree
-hmacSuite = testGroup "Http" 
+hmacSuite = testGroup "Hmac" 
   [testCase "hmac" hmacBodyTest]
 
 hmacBodyTest :: Assertion

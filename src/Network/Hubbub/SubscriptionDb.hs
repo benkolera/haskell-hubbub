@@ -2,7 +2,10 @@
 {-# LANGUAGE DeriveDataTypeable, TypeFamilies, TemplateHaskell #-}
 
 module Network.Hubbub.SubscriptionDb
-  ( Callback (Callback)
+  ( AddSubscription (AddSubscription)
+  , RemoveSubscription (RemoveSubscription)  
+  , Callback (Callback)
+  , GetTopicSubscriptions(GetTopicSubscriptions)
   , From (From)  
   , HttpResource (HttpResource)
   , Secret (Secret)
@@ -80,7 +83,7 @@ $(deriveSafeCopy 0 'base ''From)
   
 data Subscription = Subscription
   UTCTime         -- ^ StartedAt
-  (Maybe UTCTime) -- ^ ExpiresAt
+  UTCTime         -- ^ ExpiresAt
   (Maybe Secret)  -- ^ Secret
   (Maybe From)    -- ^ From
   deriving (Show,Typeable,Eq)
@@ -110,14 +113,15 @@ addSubscription t u s = modify add
    add (SubscriptionDb m) = SubscriptionDb $ alter (Just . updateTopicSubs) t m
    updateTopicSubs = insert u s . fromMaybe empty
 
-removeSubscription :: Topic -> Callback -> Update SubscriptionDb (Maybe Subscription)
+removeSubscription :: Topic -> Callback -> Update SubscriptionDb ()
 removeSubscription t u = do
   (SubscriptionDb m) <- get
   put . SubscriptionDb $ adjust (alter (const Nothing) u) t m 
-  return $ lookup t m >>= lookup u
+  return ()
 
 $(makeAcidic ''SubscriptionDb [
   'getAllSubscriptions
   ,'getTopicSubscriptions
   ,'addSubscription
+  ,'removeSubscription
   ])

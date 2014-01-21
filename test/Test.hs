@@ -3,7 +3,8 @@ module Main where
 import Network.Hubbub.Queue.Test
 import Network.Hubbub.SubscriptionDb.Test
 import Network.Hubbub.Http.Test
-import Network.Hubbub.Hmac.Test 
+import Network.Hubbub.Hmac.Test
+import Network.Hubbub.Internal.Test 
 
 import Prelude (IO)
 import Test.Tasty (defaultMain,testGroup,TestTree)
@@ -17,4 +18,5 @@ tests = testGroup "All Tests"
   , queueSuite
   , httpSuite
   , hmacSuite
+  , internalSuite
   ]

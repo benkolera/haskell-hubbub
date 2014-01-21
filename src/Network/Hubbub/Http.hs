@@ -1,7 +1,7 @@
 module Network.Hubbub.Http 
   ( HttpError(..)
   , ServerUrl(ServerUrl)
-  , checkSubscription
+  , verifySubscriptionEvent
   , getPublishedResource
   , publishResource  
   ) where
@@ -116,8 +116,11 @@ publishResource sec (Callback cRes) (Topic tRes) (ServerUrl sRes) ct body =
       ]
         
       
-checkSubscription :: RandomGen r => r -> SubscriptionEvent -> HttpCall Bool
-checkSubscription rng ev = case ev of
+verifySubscriptionEvent :: RandomGen r =>
+  r ->
+  SubscriptionEvent ->
+  HttpCall Bool
+verifySubscriptionEvent rng ev = case ev of
   (SubscribeEvent t c ls _ _) -> check t c "subscribe" (Just ls)
   (UnsubscribeEvent t c)      -> check t c "unsubscribe" Nothing
   where

@@ -6,6 +6,7 @@ import Network.Hubbub.TestHelpers
 import Prelude (($),(.),Maybe(Nothing,Just),fst,snd)
 import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.HUnit ((@=?),testCase,Assertion)
+import Data.DateTime (addSeconds)
 import qualified Data.Map as Map
 import Data.Time (getCurrentTime,UTCTime)
 import Data.Acid.Memory.Pure (runUpdate,liftQuery,runQuery)
@@ -53,4 +54,4 @@ testGetAll = do
     addSub n t = addSubscription (topic n) (callback n) $ subscription t "foo"
 
 subscription :: UTCTime -> Text -> Subscription
-subscription t n = Subscription t Nothing Nothing (Just . From $ n)
+subscription t n = Subscription t (addSeconds 300 t) Nothing (Just . From $ n)

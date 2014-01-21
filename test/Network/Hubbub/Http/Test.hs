@@ -3,7 +3,7 @@ module Network.Hubbub.Http.Test (httpSuite) where
 import Network.Hubbub.Http
   ( HttpError(NotFound,ServerError,NotOk)
   , ServerUrl (ServerUrl)
-  , checkSubscription
+  , verifySubscriptionEvent
   , getPublishedResource
   , publishResource )
 
@@ -12,22 +12,22 @@ import Network.Hubbub.Queue
   , LeaseSeconds(LeaseSeconds))
   
 import Network.Hubbub.SubscriptionDb 
-  ( Topic (Topic)
-  , Callback (Callback)
+  ( Topic
+  , Callback
   , HttpResource(HttpResource)
-
   , Secret(Secret))
-import Network.Hubbub.TestHelpers ()
+import Network.Hubbub.TestHelpers
+  ( assertRight
+  , scottyTest
+  , localTopic
+  , localCallback)
 
 import Prelude (undefined,Int,putStrLn)
 import Control.Applicative ((<$>),liftA2)
 import Control.Arrow ((***))
-import Control.Concurrent (forkIO,killThread)
-import Control.Exception (bracket)
-import Control.Monad ((>>=),(>>),unless,join,return)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad ((>>=),unless,join,return)
 import Control.Monad.Trans.Either (runEitherT)
-import Data.Either (Either(Left,Right))
+import Data.Either (Either(Left))
 import Data.Bool (Bool(True,False),(||))
 import qualified Data.ByteString      as Bs
 import qualified Data.ByteString.Lazy as BsL 
@@ -37,10 +37,9 @@ import Data.Functor (fmap)
 import Data.List ((++),filter)
 import Data.Maybe (Maybe(Nothing,Just))
 import qualified Data.Text.Lazy as TL
-import Data.Text (Text)
 import Data.Tuple (fst)
 import Network.HTTP.Types.Status (status404,status500,status400)
-import Network.Wai.Middleware.RequestLogger (logStdoutDev)
+
 import System.IO (IO)
 import System.Random (getStdGen)
 import Test.Tasty (testGroup, TestTree)
@@ -52,7 +51,6 @@ import Web.Scotty
   , ScottyM
   , body  
   , get
-  , middleware
   , next
   , param
   , params
@@ -60,13 +58,12 @@ import Web.Scotty
   , raise
   , reqHeader
   , rescue
-  , scotty
   , status
   , text )
 
 httpSuite :: TestTree
 httpSuite = testGroup "Http" 
-  [getPublishedResourceSuite,checkSubscriptionSuite,publishResourceSuite]
+  [getPublishedResourceSuite,verifySubscriptionEventSuite,publishResourceSuite]
 
 --------------------------------------------------------------------------------
 -- GetPublishedResourceSuite
@@ -119,23 +116,23 @@ runGetPublishedResource :: Topic -> IO (Maybe Bs.ByteString,BsL.ByteString)
 runGetPublishedResource t = runEitherT (getPublishedResource t) >>= assertRight
 
 --------------------------------------------------------------------------------
--- CheckSubscriptionSuite
+-- VerifySubscriptionEventSuite
 --------------------------------------------------------------------------------
 
-checkSubscriptionSuite :: TestTree
-checkSubscriptionSuite = testGroup "CheckSubscription"
-  [ testCase "basic"                  basicCheckSubscriptionTest
-  , testCase "keep params"            keepParamsCheckSubscriptionTest  
-  , testCase "fail verify"            failCheckSubscriptionTest
-  , testCase "bad challenge response" badChallengeCheckSubscriptionTest
-  , testCase "unsubscribe"            unsubscribeCheckSubscriptionTest ]
+verifySubscriptionEventSuite :: TestTree
+verifySubscriptionEventSuite = testGroup "VerifySubscriptionEvent"
+  [ testCase "basic"                  basicVerifySubscriptionEventTest
+  , testCase "keep params"            keepParamsVerifySubscriptionEventTest  
+  , testCase "fail verify"            failVerifySubscriptionEventTest
+  , testCase "bad challenge response" badChallengeVerifySubscriptionEventTest
+  , testCase "unsubscribe"            unsubscribeVerifySubscriptionEventTest ]
 
 callbackTest :: CallbackHandler -> Assertion -> Assertion
 callbackTest handler = scottyTest (callbackM handler)
   
-basicCheckSubscriptionTest :: Assertion
-basicCheckSubscriptionTest = callbackTest handleCallback $ do
-  res <- runCheckSubscription event
+basicVerifySubscriptionEventTest :: Assertion
+basicVerifySubscriptionEventTest = callbackTest handleCallback $ do
+  res <- runVerifySubscriptionEvent event
   res @?= True
   where
     handleCallback "subscribe" "http://localhost:3000/topic" c (Just 1337) =
@@ -148,9 +145,9 @@ basicCheckSubscriptionTest = callbackTest handleCallback $ do
             Nothing
             Nothing
 
-unsubscribeCheckSubscriptionTest :: Assertion
-unsubscribeCheckSubscriptionTest = callbackTest handleCallback $ do
-  res <- runCheckSubscription event
+unsubscribeVerifySubscriptionEventTest :: Assertion
+unsubscribeVerifySubscriptionEventTest = callbackTest handleCallback $ do
+  res <- runVerifySubscriptionEvent event
   res @?= True
   where
     handleCallback "unsubscribe" "http://localhost:3000/topic" c Nothing =
@@ -158,9 +155,9 @@ unsubscribeCheckSubscriptionTest = callbackTest handleCallback $ do
     handleCallback _ _ _ _ = status status404
     event = UnsubscribeEvent (localTopic []) (localCallback [])
 
-keepParamsCheckSubscriptionTest :: Assertion
-keepParamsCheckSubscriptionTest = callbackTest handleCallback $ do
-  res <- runCheckSubscription event
+keepParamsVerifySubscriptionEventTest :: Assertion
+keepParamsVerifySubscriptionEventTest = callbackTest handleCallback $ do
+  res <- runVerifySubscriptionEvent event
   res @?= True
   where
     handleCallback
@@ -184,9 +181,9 @@ keepParamsCheckSubscriptionTest = callbackTest handleCallback $ do
             Nothing
     topicParams = [("pA","13"),("pA","37"),("pB","a b"),("pB","b c")]
 
-failCheckSubscriptionTest :: Assertion
-failCheckSubscriptionTest = callbackTest handleCallback $ do
-  res <- runCheckSubscription event
+failVerifySubscriptionEventTest :: Assertion
+failVerifySubscriptionEventTest = callbackTest handleCallback $ do
+  res <- runVerifySubscriptionEvent event
   res @?= False
   where
     handleCallback _ _ _ _ = status status404
@@ -197,9 +194,9 @@ failCheckSubscriptionTest = callbackTest handleCallback $ do
             Nothing
             Nothing
 
-badChallengeCheckSubscriptionTest :: Assertion
-badChallengeCheckSubscriptionTest = callbackTest handleCallback $ do
-  res <- runCheckSubscription event
+badChallengeVerifySubscriptionEventTest :: Assertion
+badChallengeVerifySubscriptionEventTest = callbackTest handleCallback $ do
+  res <- runVerifySubscriptionEvent event
   res @?= False
   where
     handleCallback _ _ _ _ = text "not a valid challenge response"
@@ -210,10 +207,10 @@ badChallengeCheckSubscriptionTest = callbackTest handleCallback $ do
             Nothing
             Nothing            
 
-runCheckSubscription :: SubscriptionEvent -> IO Bool
-runCheckSubscription e = do
+runVerifySubscriptionEvent :: SubscriptionEvent -> IO Bool
+runVerifySubscriptionEvent e = do
   rng <- getStdGen
-  runEitherT (checkSubscription rng e) >>= assertRight
+  runEitherT (verifySubscriptionEvent rng e) >>= assertRight
 
 --------------------------------------------------------------------------------
 -- PublishResourceSuite
@@ -297,19 +294,6 @@ runPublishResource s cb top surl mt b = do
 
 ---- 
 
-assertRight :: Show e => Either e a -> IO a
-assertRight (Left e)  = do
-  assertFailure $ "Expecting right but got left: " ++ show e
-  return undefined -- TODO: There must be a better way. 
-  
-assertRight (Right a) = return a 
-
-localTopic :: [(Text,Text)] -> Topic
-localTopic = Topic . HttpResource False "localhost" 3000 "topic"
-
-localCallback :: [(Text,Text)] -> Callback
-localCallback = Callback . HttpResource False "localhost" 3000 "callback"
-
 localHub :: ServerUrl
 localHub = ServerUrl $ HttpResource False "localhost" 3000 "hub" []
 
@@ -342,15 +326,3 @@ publishM pubAction =
     l   <- reqHeader "Link"
     b   <- body
     pubAction ct sig l b
-
-httpTest :: IO () -> Assertion -> Assertion
-httpTest server assert = bracket
-  (liftIO $ forkIO server)
-  killThread
-  (const assert)
-
-scottyServer :: ScottyM () -> IO ()
-scottyServer = scotty 3000 . (middleware logStdoutDev >>)
-
-scottyTest :: ScottyM () -> Assertion -> Assertion
-scottyTest sm = httpTest (scottyServer sm) 

@@ -1,15 +1,6 @@
-module Network.Hubbub 
-  ( Topic(Topic)
-  , Callback(..)
-  , LeaseSeconds(..)
-  , Secret(..)
-  , From(..)
-  , Mode(..)
-  , SubscriptionEvent(..)
-  , subscribe
-  , publish
-  ) where
+module Network.Hubbub () where
 
+import Network.Hubbub.Internal (doSubscriptionEvent)
 import Network.Hubbub.SubscriptionDb
   (SubscriptionDb (..)
   , Subscription (..)
@@ -37,17 +28,7 @@ import Data.Time(getCurrentTime)
 import Data.DateTime (addSeconds)
 
 subscriptionThread :: AcidState SubscriptionDb -> TQueue SubscriptionEvent -> IO ()
-subscriptionThread acid = subscriptionLoop doSubscribe
-  where
-    doSubscribe (SubscriptionEvent t cb m ls s f) = 
-      do time <- getCurrentTime
-         ok   <- checkSubscriber t cb m ls
-         _    <- update acid (AddSubscription t cb $ createDbSub time ls s f)
-         return ()
-    checkSubscriber t cb m ls = return True
-    createDbSub t ls = Subscription t (expiry t ls)
-    expiry time = fmap (\ (LeaseSeconds s) -> addSeconds s time) 
-
+subscriptionThread acid = subscriptionLoop (doSubscriptionEvent acid)
 
 publishThread :: TQueue Topic -> IO ()
 publishThread = publishLoop doPublish
