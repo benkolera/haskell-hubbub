@@ -1,38 +1,65 @@
 module Network.Hubbub.Internal.Test (internalSuite) where
 
-import Network.Hubbub.Internal (doSubscriptionEvent)
+import Network.Hubbub.Internal
+  ( doDistributionEvent
+  , doSubscriptionEvent
+  , doPublicationEvent )
 import Network.Hubbub.SubscriptionDb
   ( Callback
+  , From(From)
   , GetTopicSubscriptions(GetTopicSubscriptions)
   , SubscriptionDb(SubscriptionDb)
+  , Secret(Secret)
   , Subscription(Subscription)
   , Topic
   , emptyDb)
 import Network.Hubbub.Queue
-  ( SubscriptionEvent(SubscribeEvent,UnsubscribeEvent)
+  ( AttemptCount(AttemptCount)
+  , ContentType(ContentType)
+  , DistributionEvent(DistributionEvent)
+  , ResourceBody(ResourceBody)
+  , SubscriptionEvent(Subscribe,Unsubscribe)
+  , PublicationEvent(PublicationEvent)
   , LeaseSeconds(LeaseSeconds)
   )
 import Network.Hubbub.TestHelpers
   ( assertRightEitherT
+  , callback
   , scottyTest
+  , localHub
   , localTopic
-  , localCallback )
+  , localCallback
+  , topic )
 
 import Prelude (undefined)
-import Control.Monad (return)
+import Control.Monad (return,mapM,unless)
 import Data.Acid (AcidState,IsAcidic,query)
 import Data.Acid.Memory (openMemoryState)
-import Data.Function (($))
+import Data.DateTime (addMinutes)
+import Data.Eq ((==))
+import Data.Function (($),(.))
 import Data.Maybe (Maybe(Nothing,Just))
 import Data.Map (lookup,fromList)
+import Data.Time (getCurrentTime)
+import Network.HTTP.Types.Status (status500)
 import System.IO (IO)
 import System.Random (StdGen,getStdGen)
 import Test.Tasty (testGroup, TestTree)
-import Test.Tasty.HUnit (Assertion,testCase,assertFailure)
-import Web.Scotty (ScottyM,get,param,text)
+import Test.Tasty.HUnit (Assertion,testCase,assertFailure,(@?=))
+import Web.Scotty (ScottyM,body,get,param,post,reqHeader,setHeader,status,text)
 
 internalSuite :: TestTree
-internalSuite = testGroup "Internal" 
+internalSuite = testGroup "Internal"
+  [ doSubscriptionEventSuite
+  , doPublicationEventSuite
+  , doDistributionEventSuite ]
+
+--------------------------------------------------------------------------------
+-- DoSubscriptionEvent
+--------------------------------------------------------------------------------
+
+doSubscriptionEventSuite :: TestTree
+doSubscriptionEventSuite = testGroup "DoSubscriptionEvent" 
   [ testCase "subscribe" subscribeDoSubscriptionEventTest
   , testCase "unsubscribe" unsubscribeDoSubscriptionEventTest
   , testCase "subscribeError" subscribeErrorDoSubscriptionEventTest
@@ -95,15 +122,105 @@ findSubscription t cb acid = do
 
 testSubscribe :: SubscriptionEvent
 testSubscribe =
-  SubscribeEvent
+  Subscribe
   (localTopic [])
   (localCallback [])
   (LeaseSeconds 1337)
+  (AttemptCount 1)
   Nothing
   Nothing
 
 testUnsubscribe :: SubscriptionEvent
-testUnsubscribe = UnsubscribeEvent (localTopic []) (localCallback [])
+testUnsubscribe = Unsubscribe (localTopic []) (localCallback []) (AttemptCount 1)
+
+--------------------------------------------------------------------------------
+-- DoPublicationEvent
+--------------------------------------------------------------------------------
+
+doPublicationEventSuite :: TestTree
+doPublicationEventSuite = testGroup "DoPublicationEvent"
+  [testCase "basicEvent" doPublicationEventTest]
+
+doPublicationEventTest :: Assertion
+doPublicationEventTest = do
+  db <- testDb
+  acidTest goodPublisher db test
+  where
+    test acid _ = do
+      distEvents <- assertRightEitherT $ doPublicationEvent acid ev
+      distEvents @?= [
+        dEv (callback "callbackB") Nothing
+        , dEv (callback "callbackC") (Just . Secret $ "pw")
+        ]
+    ev = PublicationEvent (topic "topicB") (AttemptCount 1)
+    dEv cb sec =
+      DistributionEvent
+      (topic "topicB")
+      cb
+      (Just . ContentType $ "application/csv")
+      (ResourceBody "foo,bar")
+      sec
+      (AttemptCount 1)
+
+      
+
+--------------------------------------------------------------------------------
+-- DoDistributionEvent
+--------------------------------------------------------------------------------
+
+doDistributionEventSuite :: TestTree
+doDistributionEventSuite = testGroup "DoDistributionEvent"
+  [testCase "basicEvent" doDistributionEventTest]
+
+doDistributionEventTest :: Assertion
+doDistributionEventTest = scottyTest subscribers $ do
+  _ <- assertRightEitherT $ mapM (doDistributionEvent localHub) dEvs
+  return ()
+  where
+    subscribers = do
+      post "/callback/callbackB" $ callbackHandler Nothing
+      post "/callback/callbackC" $
+        callbackHandler $ Just "674cc7f271f41ec15c5f0418a0f7675525ed4304"
+
+    callbackHandler expectedSig = do
+      ct <- reqHeader "content-type"
+      bd <- body 
+      sg <- reqHeader "X-Hub-Signature"
+      unless  (ct == Just "application/csv") $ status status500
+      unless  (bd == "foo,bar")              $ status status500
+      unless  (sg == expectedSig)            $ status status500
+      
+    dEvs = [
+      dEv (callback "callbackB") Nothing
+      , dEv (callback "callbackC") (Just . Secret $ "pw")
+      ]
+    dEv cb sec =
+      DistributionEvent
+      (topic "topicB")
+      cb
+      (Just . ContentType $ "application/csv")
+      (ResourceBody "foo,bar")
+      sec
+      (AttemptCount 1)
+
+
+testDb :: IO SubscriptionDb
+testDb = do
+  tm <- getCurrentTime
+  let exp = addMinutes 30 tm
+  return . SubscriptionDb $ fromList
+    [ (topic "topicA",
+       fromList [
+         (callback "callbackA",
+          Subscription tm exp Nothing (Just . From $ "userA"))
+         ])
+    , (topic "topicB",
+       fromList [
+         (callback "callbackB",
+          Subscription tm exp Nothing (Just . From $ "userB"))
+         , (callback "callbackC",
+            Subscription tm exp (Just . Secret $ "pw") (Just . From $ "userC"))
+         ])]
 
 acidTest :: (IsAcidic s) =>
   ScottyM () ->
@@ -119,6 +236,11 @@ goodSubscriber :: ScottyM ()
 goodSubscriber = get "/callback" $ do
   challenge <- param "hub.challenge"
   text challenge
+
+goodPublisher :: ScottyM ()
+goodPublisher = get "/topic/topicB" $ do
+  text "foo,bar"
+  setHeader "Content-Type" "application/csv"
 
 badSubscriber :: ScottyM ()
 badSubscriber = return ()

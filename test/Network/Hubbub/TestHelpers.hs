@@ -3,6 +3,7 @@ module Network.Hubbub.TestHelpers
   , assertRightEitherT  
   , callback
   , httpTest
+  , localHub
   , localCallback
   , localTopic
   , resource
@@ -10,6 +11,8 @@ module Network.Hubbub.TestHelpers
   , scottyTest
   , topic
   ) where
+
+import Network.Hubbub.Http (ServerUrl(ServerUrl))
 
 import Network.Hubbub.SubscriptionDb 
   ( HttpResource(HttpResource)
@@ -34,13 +37,13 @@ import Text.Show (Show,show)
 import Web.Scotty (ScottyM,middleware,scotty)
 
 topic :: Text -> Topic
-topic n    = Topic $ resource "publish.com" ("/topic/" `append` n)
+topic n = Topic $ resource ("/topic/" `append` n) []
 
 callback :: Text -> Callback
-callback n = Callback $ resource "subscribe.com" ("/callback/" `append` n)
+callback n = Callback $ resource ("/callback/" `append` n) []
 
-resource :: Text -> Text -> HttpResource
-resource host path = HttpResource False host 80 path []
+resource :: Text -> [(Text,Text)] -> HttpResource
+resource = HttpResource False "localhost" 3000
 
 httpTest :: IO () -> Assertion -> Assertion
 httpTest server assert = bracket
@@ -55,10 +58,13 @@ scottyTest :: ScottyM () -> Assertion -> Assertion
 scottyTest sm = httpTest (scottyServer sm)   
 
 localTopic :: [(Text,Text)] -> Topic
-localTopic = Topic . HttpResource False "localhost" 3000 "topic"
+localTopic = Topic . resource "topic"
 
 localCallback :: [(Text,Text)] -> Callback
-localCallback = Callback . HttpResource False "localhost" 3000 "callback"
+localCallback = Callback . resource "callback"
+
+localHub :: ServerUrl
+localHub = ServerUrl $ HttpResource False "localhost" 3000 "hub" []
 
 assertRight :: Show e => Either e a -> IO a
 assertRight (Left e)  = do

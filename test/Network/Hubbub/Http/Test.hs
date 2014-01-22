@@ -2,23 +2,26 @@ module Network.Hubbub.Http.Test (httpSuite) where
 
 import Network.Hubbub.Http
   ( HttpError(NotFound,ServerError,NotOk)
-  , ServerUrl (ServerUrl)
   , verifySubscriptionEvent
   , getPublishedResource
-  , publishResource )
+  , distributeResource )
 
 import Network.Hubbub.Queue
-  ( SubscriptionEvent(SubscribeEvent,UnsubscribeEvent)
+  ( AttemptCount(AttemptCount)
+  , ContentType(ContentType)
+  , DistributionEvent(DistributionEvent)
+  , PublicationEvent(PublicationEvent)
+  , ResourceBody(ResourceBody)
+  , SubscriptionEvent(Subscribe,Unsubscribe)
   , LeaseSeconds(LeaseSeconds))
   
 import Network.Hubbub.SubscriptionDb 
   ( Topic
-  , Callback
-  , HttpResource(HttpResource)
   , Secret(Secret))
 import Network.Hubbub.TestHelpers
   ( assertRight
   , scottyTest
+  , localHub
   , localTopic
   , localCallback)
 
@@ -29,7 +32,6 @@ import Control.Monad ((>>=),unless,join,return)
 import Control.Monad.Trans.Either (runEitherT)
 import Data.Either (Either(Left))
 import Data.Bool (Bool(True,False),(||))
-import qualified Data.ByteString      as Bs
 import qualified Data.ByteString.Lazy as BsL 
 import Data.Eq ((==))
 import Data.Function (const,($),(.))
@@ -63,7 +65,10 @@ import Web.Scotty
 
 httpSuite :: TestTree
 httpSuite = testGroup "Http" 
-  [getPublishedResourceSuite,verifySubscriptionEventSuite,publishResourceSuite]
+  [ getPublishedResourceSuite
+  , verifySubscriptionEventSuite
+  , distributeResourceSuite
+  ]
 
 --------------------------------------------------------------------------------
 -- GetPublishedResourceSuite
@@ -78,15 +83,15 @@ getPublishedResourceSuite = testGroup "GetPublishedResource"
 
 okGetPublishedResource :: Assertion
 okGetPublishedResource = scottyTest scottyM $ do
-  (t,c) <- runGetPublishedResource $ localTopic []
-  t @?= Just "text/plain"
-  c @?= "Hello world!"
+  (t,c) <- runGetPublishedResource . publicationEvent $ localTopic []
+  t @?= (Just $ ContentType "text/plain")
+  c @?= ResourceBody "Hello world!"
   where
     scottyM = get "/topic" $ text "Hello world!"
 
 notFoundGetPublishedResource :: Assertion
 notFoundGetPublishedResource = scottyTest (return ()) $ do
-  either <- runEitherT (getPublishedResource $ localTopic [])
+  either <- runEitherT (getPublishedResource . publicationEvent $ localTopic [])
   assertError either
   where
     assertError (Left (NotFound _)) = return ()
@@ -94,7 +99,7 @@ notFoundGetPublishedResource = scottyTest (return ()) $ do
 
 notOkGetPublishedResource :: Assertion
 notOkGetPublishedResource = scottyTest scottyM $ do
-  either <- runEitherT (getPublishedResource $ localTopic [])
+  either <- runEitherT (getPublishedResource . publicationEvent $ localTopic [])
   assertError either
   where
     scottyM = get "/topic" $ status status400
@@ -105,14 +110,19 @@ notOkGetPublishedResource = scottyTest scottyM $ do
 
 serverErrorGetPublishedResource :: Assertion
 serverErrorGetPublishedResource = scottyTest scottyM $ do
-  either <- runEitherT (getPublishedResource $ localTopic [])
+  either <- runEitherT (getPublishedResource . publicationEvent $ localTopic [])
   assertError either
   where
     scottyM = get "/topic" $ status status500
     assertError (Left (ServerError _ res)) = res @?= "Internal Server Error"
     assertError res = assertFailure $ "Expected ServerErr but got: " ++ show res
 
-runGetPublishedResource :: Topic -> IO (Maybe Bs.ByteString,BsL.ByteString)
+publicationEvent :: Topic -> PublicationEvent
+publicationEvent t = PublicationEvent t (AttemptCount 1)
+
+runGetPublishedResource ::
+  PublicationEvent ->
+  IO (Maybe ContentType,ResourceBody)
 runGetPublishedResource t = runEitherT (getPublishedResource t) >>= assertRight
 
 --------------------------------------------------------------------------------
@@ -138,10 +148,11 @@ basicVerifySubscriptionEventTest = callbackTest handleCallback $ do
     handleCallback "subscribe" "http://localhost:3000/topic" c (Just 1337) =
       text c
     handleCallback _ _ _ _ = status status404
-    event = SubscribeEvent
+    event = Subscribe
             (localTopic [])
             (localCallback [])
             (LeaseSeconds 1337)
+            (AttemptCount 1)
             Nothing
             Nothing
 
@@ -153,7 +164,7 @@ unsubscribeVerifySubscriptionEventTest = callbackTest handleCallback $ do
     handleCallback "unsubscribe" "http://localhost:3000/topic" c Nothing =
       text c
     handleCallback _ _ _ _ = status status404
-    event = UnsubscribeEvent (localTopic []) (localCallback [])
+    event = Unsubscribe (localTopic []) (localCallback []) (AttemptCount 1)
 
 keepParamsVerifySubscriptionEventTest :: Assertion
 keepParamsVerifySubscriptionEventTest = callbackTest handleCallback $ do
@@ -173,10 +184,11 @@ keepParamsVerifySubscriptionEventTest = callbackTest handleCallback $ do
           raise "ParamA and ParamB didn't match"
         text c
     handleCallback _ _ _ _ = status status404
-    event = SubscribeEvent
+    event = Subscribe
             (localTopic [("paramA","1"),("paramB","foo bar"),("paramA","2")])
             (localCallback topicParams)
             (LeaseSeconds 1337)
+            (AttemptCount 1)
             Nothing
             Nothing
     topicParams = [("pA","13"),("pA","37"),("pB","a b"),("pB","b c")]
@@ -187,10 +199,11 @@ failVerifySubscriptionEventTest = callbackTest handleCallback $ do
   res @?= False
   where
     handleCallback _ _ _ _ = status status404
-    event = SubscribeEvent
+    event = Subscribe
             (localTopic [])
             (localCallback [])
             (LeaseSeconds 1337)
+            (AttemptCount 1)
             Nothing
             Nothing
 
@@ -200,10 +213,11 @@ badChallengeVerifySubscriptionEventTest = callbackTest handleCallback $ do
   res @?= False
   where
     handleCallback _ _ _ _ = text "not a valid challenge response"
-    event = SubscribeEvent
+    event = Subscribe
             (localTopic [])
             (localCallback [])
             (LeaseSeconds 1337)
+            (AttemptCount 1)
             Nothing
             Nothing            
 
@@ -213,89 +227,88 @@ runVerifySubscriptionEvent e = do
   runEitherT (verifySubscriptionEvent rng e) >>= assertRight
 
 --------------------------------------------------------------------------------
--- PublishResourceSuite
+-- DistributeResourceSuite
 --------------------------------------------------------------------------------
 
-publishResourceSuite :: TestTree
-publishResourceSuite = testGroup "PublishResource"
-  [ testCase "basic"            basicPublishResourceTest
-  , testCase "hmaced"           hmacPublishResourceTest
-  , testCase "callback failure" failPublishResourceTest
+distributeResourceSuite :: TestTree
+distributeResourceSuite = testGroup "DistributeResource"
+  [ testCase "basic"            basicDistributeResourceTest
+  , testCase "hmaced"           hmacDistributeResourceTest
+  , testCase "callback failure" failDistributeResourceTest
   ]
 
-publishTest :: PublishHandler -> Assertion -> Assertion
-publishTest handler = scottyTest (publishM handler)
+distributeTest :: DistributeHandler -> Assertion -> Assertion
+distributeTest handler = scottyTest (distributeM handler)
 
-basicPublishResourceTest :: Assertion
-basicPublishResourceTest = publishTest handlePublish $ 
-  runPublishResource
+basicDistributeResourceTest :: Assertion
+basicDistributeResourceTest = distributeTest handleDistribute $ 
+  runDistributeResource
     Nothing
-    (localCallback [])
-    (localTopic [])
-    localHub
-    (Just "text/html")
-    "foobar"
+    (ContentType "text/html")
+    (ResourceBody "foobar")
   where
-    handlePublish :: PublishHandler
-    handlePublish (Just "text/html") Nothing l "foobar" = do
+    handleDistribute :: DistributeHandler
+    handleDistribute (Just "text/html") Nothing l "foobar" = do
       unless (l == Just expectedLink) next
       return ()
-    handlePublish _ _ _ _ = status status500
+    handleDistribute _ _ _ _ = status status500
     expectedLink =
       "<http://localhost:3000/topic>; rel=\"self\",<http://localhost:3000/hub>; rel=\"hub\""
 
-hmacPublishResourceTest :: Assertion
-hmacPublishResourceTest = publishTest handlePublish $ 
-  runPublishResource
+hmacDistributeResourceTest :: Assertion
+hmacDistributeResourceTest = distributeTest handleDistribute $ 
+  runDistributeResource
     (Just $ Secret "supersecretsquirrel")
-    (localCallback [])
-    (localTopic [])
-    localHub
-    (Just "text/html")
-    "foobar"
+    (ContentType "text/html")
+    (ResourceBody "foobar")
   where
-    handlePublish :: PublishHandler
-    handlePublish (Just "text/html") (Just sig) (Just l) "foobar" = do
+    handleDistribute :: DistributeHandler
+    handleDistribute (Just "text/html") (Just sig) (Just l) "foobar" = do
       unless (l == expectedLink) next
       unless (sig == expectedSig) next
       return ()
-    handlePublish _ _ _ _ = status status500
+    handleDistribute _ _ _ _ = status status500
     expectedSig  = "1ec8409d5244edbabb92624575e9b1b2f1485dbb"
     expectedLink = 
       "<http://localhost:3000/topic>; rel=\"self\",<http://localhost:3000/hub>; rel=\"hub\""
 
 
-failPublishResourceTest :: Assertion
-failPublishResourceTest = publishTest handlePublish $ do
-  pubEither <- runEitherT $ publishResource
-    Nothing
-    (localCallback [])
-    (localTopic [])
-    localHub
-    (Just "text/html")
-    "foobar"
+failDistributeResourceTest :: Assertion
+failDistributeResourceTest = distributeTest handleDistribute $ do
+  pubEither <- runEitherT $ distributeResource ev localHub
   assertError pubEither
   where
-    handlePublish _ _ _ _ = status status404
+    handleDistribute _ _ _ _ = status status404
     assertError (Left (NotFound _)) = return ()
-    assertError res = assertFailure $ "Expected NotFound but got: " ++ show res 
+    assertError res = assertFailure $ "Expected NotFound but got: " ++ show res
+    ev = distributionEvent Nothing (ContentType "text/html") (ResourceBody "fo")
 
-runPublishResource ::
+runDistributeResource ::
   Maybe Secret ->
-  Callback ->
-  Topic ->
-  ServerUrl ->
-  Maybe Bs.ByteString ->
-  BsL.ByteString ->
+  ContentType  ->
+  ResourceBody ->
   IO ()
-runPublishResource s cb top surl mt b = do
-  e <- runEitherT (publishResource s cb top surl mt b)
+runDistributeResource sec ct rb = do
+  e <- runEitherT (distributeResource (distributionEvent sec ct rb) localHub)
   assertRight e
+
+distributionEvent ::
+  Maybe Secret ->
+  ContentType ->
+  ResourceBody ->
+  DistributionEvent
+distributionEvent sec ct rb =
+  DistributionEvent
+  (localTopic [])
+  (localCallback [])
+  (Just ct)
+  rb
+  sec
+  (AttemptCount 1)
 
 ---- 
 
-localHub :: ServerUrl
-localHub = ServerUrl $ HttpResource False "localhost" 3000 "hub" []
+
 
 optParam :: Parsable a => TL.Text -> ActionM (Maybe a)
 optParam label = fmap Just (param label) `rescue` const (return Nothing)
@@ -311,18 +324,18 @@ callbackM cbAction =
     ls        <- optParam "hub.leaseSeconds"
     cbAction mode topic challenge ls
 
-type PublishHandler =
+type DistributeHandler =
   Maybe TL.Text ->
   Maybe TL.Text ->
   Maybe TL.Text ->
   BsL.ByteString ->
   ActionM ()
 
-publishM :: PublishHandler -> ScottyM ()
-publishM pubAction = 
+distributeM :: DistributeHandler -> ScottyM ()
+distributeM distAction = 
   post "/callback" $ do
     ct  <- reqHeader "Content-Type"    
     sig <- reqHeader "X-Hub-Signature"
     l   <- reqHeader "Link"
     b   <- body
-    pubAction ct sig l b
+    distAction ct sig l b

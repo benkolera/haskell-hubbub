@@ -3,22 +3,36 @@ module Network.Hubbub.Http
   , ServerUrl(ServerUrl)
   , verifySubscriptionEvent
   , getPublishedResource
-  , publishResource  
+  , distributeResource  
   ) where
 
 import Network.Hubbub.Hmac (hmacBody)
 import Network.Hubbub.SubscriptionDb 
   ( Callback(Callback)
   , HttpResource (HttpResource)
-  , Secret 
   , Topic (Topic)
+  , fromCallback
+  , fromTopic
   , httpResourceToText
   , httpResourceQueryString
   )
   
 import Network.Hubbub.Queue
-  ( SubscriptionEvent(SubscribeEvent,UnsubscribeEvent)
-  , LeaseSeconds(LeaseSeconds))
+  ( DistributionEvent
+  , ContentType(ContentType)
+  , LeaseSeconds(LeaseSeconds)
+  , PublicationEvent
+  , ResourceBody(ResourceBody)
+  , SubscriptionEvent(Subscribe,Unsubscribe)
+  , distributionBody
+  , distributionCallback
+  , distributionContentType
+  , distributionSecret
+  , distributionTopic
+  , fromContentType
+  , fromResourceBody
+  , publicationTopic
+  )
   
 import Prelude (IO,undefined,Int)
 import Control.Arrow ((&&&))
@@ -76,36 +90,42 @@ newtype ServerUrl = ServerUrl HttpResource
 
 type HttpCall a = EitherT HttpError IO a
 
-getPublishedResource :: Topic -> HttpCall (Maybe Bs.ByteString,BsL.ByteString)
-getPublishedResource (Topic res) = 
-  (contentType &&& responseBody) <$> doHttp (httpResourceToRequest res)
+getPublishedResource ::
+  PublicationEvent ->
+  HttpCall (Maybe ContentType,ResourceBody)
+getPublishedResource ev =
+  fmap
+    ((fmap ContentType . contentType) &&& (ResourceBody . responseBody)) 
+    (doHttp (httpResourceToRequest . fromTopic . publicationTopic $ ev))
   where
+    contentType :: Response BsL.ByteString -> Maybe Bs.ByteString
     contentType = fmap snd . find ((== hContentType) . fst) . responseHeaders
 
-publishResource ::
-  Maybe Secret ->         -- ^ Secret used for HMAC signing
-  Callback ->             -- ^ Subscriber callback URL
-  Topic ->                -- ^ Topic that is being published
-  ServerUrl ->            -- ^ Server Resource for self link
-  Maybe Bs.ByteString ->  -- ^ Content type of published resource
-  BsL.ByteString ->       -- ^ Body of resource
-  HttpCall ()
-publishResource sec (Callback cRes) (Topic tRes) (ServerUrl sRes) ct body =
+distributeResource :: DistributionEvent -> ServerUrl -> HttpCall ()
+distributeResource ev (ServerUrl serverRes) =
   const () <$> doHttp publishReq
   where
-    publishReq = (httpResourceToRequest cRes) {
-      method = "POST"
+    resource = httpResourceToRequest . fromCallback . distributionCallback $ ev
+    body     = fromResourceBody . distributionBody $ ev
+    contentT = fromMaybe "text/html" . fmap fromContentType . distributionContentType $ ev
+    topicRes = fromTopic . distributionTopic $ ev
+    
+    headers  =
+      (hContentType,contentT) :
+      (mk "Link", linkHeaderValue) :
+      maybe [] ((:[]) . hmacHeader) hmacSig
+      
+    publishReq = resource {
+      method = "POST" 
       , requestBody = RequestBodyLBS body
-      , requestHeaders =
-        (hContentType,fromMaybe "text/html" ct) :
-        (mk "Link", linkHeaderValue) :
-        maybe [] ((:[]) . hmacHeader) hmacSig
+      , requestHeaders = headers
       }
-    hmacSig = fmap (`hmacBody` body) sec
+                 
+    hmacSig = fmap (`hmacBody` body) . distributionSecret $ ev
     hmacHeader sig = (mk "X-Hub-Signature", sig)
     linkHeaderValue = Bs.intercalate "," [
-      resToLink tRes "self"
-      , resToLink sRes "hub"
+      resToLink topicRes "self"
+      , resToLink serverRes "hub"
       ]
     resToLink res rel = Bs.concat [
       "<"
@@ -121,8 +141,8 @@ verifySubscriptionEvent :: RandomGen r =>
   SubscriptionEvent ->
   HttpCall Bool
 verifySubscriptionEvent rng ev = case ev of
-  (SubscribeEvent t c ls _ _) -> check t c "subscribe" (Just ls)
-  (UnsubscribeEvent t c)      -> check t c "unsubscribe" Nothing
+  (Subscribe t c ls _ _ _) -> check t c "subscribe" (Just ls)
+  (Unsubscribe t c _)      -> check t c "unsubscribe" Nothing
   where
     check :: Topic -> Callback -> Text -> Maybe LeaseSeconds -> HttpCall Bool
     check (Topic t) (Callback c) m ls = handleT hush404 $

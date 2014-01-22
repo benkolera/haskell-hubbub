@@ -14,18 +14,22 @@ module Network.Hubbub.SubscriptionDb
   , Topic (Topic)
   , addSubscription    
   , allSubscriptions
-  , emptyDb    
+  , emptyDb
+  , fromCallback
+  , fromFrom
+  , fromSecret
+  , fromTopic
   , getAllSubscriptions
   , getTopicSubscriptions
-  , httpResourceToText
   , httpResourceQueryString    
+  , httpResourceToText
   , removeSubscription
   ) where
 
 import Prelude (Integer,Int,String,toInteger)
 import Control.Applicative((<$>))
 import Control.Arrow ((***))
-import Control.Monad ((>>=),return,join)
+import Control.Monad (return,join)
 import Control.Monad.Reader(ask)
 import Control.Monad.State(modify,get,put)
 import Data.Acid (Query,Update,makeAcidic)
@@ -34,7 +38,7 @@ import Data.Function ((.),($),const)
 import Data.Eq (Eq)
 import Data.Maybe(Maybe(Just,Nothing),fromMaybe)
 import Data.List (map)
-import Data.Map (Map,findWithDefault,empty,alter,insert,lookup,adjust)
+import Data.Map (Map,findWithDefault,empty,alter,insert,adjust)
 import Data.Ord (Ord)
 import Data.SafeCopy (deriveSafeCopy,base)
 import Text.Show (Show)
@@ -71,15 +75,23 @@ $(deriveSafeCopy 0 'base ''HttpResource)
 
 newtype Topic = Topic HttpResource deriving (Show,Typeable,Ord,Eq)
 $(deriveSafeCopy 0 'base ''Topic)
+fromTopic :: Topic -> HttpResource
+fromTopic (Topic t) = t  
 
 newtype Callback = Callback HttpResource deriving (Show,Typeable,Ord,Eq)
 $(deriveSafeCopy 0 'base ''Callback)
+fromCallback :: Callback -> HttpResource
+fromCallback (Callback t) = t    
 
 newtype Secret = Secret Text deriving (Show,Typeable,Ord,Eq)
 $(deriveSafeCopy 0 'base ''Secret)
+fromSecret :: Secret -> Text
+fromSecret (Secret t) = t  
   
 newtype From = From Text deriving (Show,Typeable,Ord,Eq)
 $(deriveSafeCopy 0 'base ''From)
+fromFrom :: From -> Text
+fromFrom (From t) = t    
   
 data Subscription = Subscription
   UTCTime         -- ^ StartedAt

@@ -20,6 +20,7 @@ queueSuite :: TestTree
 queueSuite = testGroup "Queue" 
   [ testCase "subscribe" testSubscribe
   , testCase "publish" testPublish
+  , testCase "distribute" testDistribute
   ]
 
 loopTest :: (Show a,Eq a) =>
@@ -52,9 +53,34 @@ testPublish =
     publicationLoop 
     (publicationEvent "a")
 
+testDistribute :: Assertion 
+testDistribute = 
+  loopTest 
+    emptyDistributionQueue 
+    distribute 
+    distributionLoop 
+    (distributionEvent "a")    
+
 subscribeEvent :: Text -> SubscriptionEvent
 subscribeEvent n =
-  SubscribeEvent (topic n) (callback n) (LeaseSeconds 1337) Nothing Nothing
+  Subscribe 
+  (topic n)
+  (callback n)
+  (LeaseSeconds 1337)
+  (AttemptCount 1)
+  Nothing
+  Nothing
 
 publicationEvent :: Text -> PublicationEvent
-publicationEvent n = PublicationEvent (topic n)
+publicationEvent n = PublicationEvent (topic n) (AttemptCount 1)
+
+distributionEvent :: Text -> DistributionEvent
+distributionEvent n =
+  DistributionEvent
+  (topic n)
+  (callback n)
+  Nothing
+  (ResourceBody "")
+  Nothing
+  (AttemptCount 1)
+
