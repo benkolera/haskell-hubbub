@@ -4,15 +4,21 @@ import Network.Hubbub.Internal
   ( doDistributionEvent
   , doSubscriptionEvent
   , doPublicationEvent )
+
 import Network.Hubbub.SubscriptionDb
   ( Callback
   , From(From)
-  , GetTopicSubscriptions(GetTopicSubscriptions)
-  , SubscriptionDb(SubscriptionDb)
   , Secret(Secret)
   , Subscription(Subscription)
   , Topic
-  , emptyDb)
+  )
+
+import Network.Hubbub.SubscriptionDb.Acid
+  ( GetTopicSubscriptions(GetTopicSubscriptions)
+  , SubscriptionDb(SubscriptionDb)
+  , apiImpl
+  , emptyDb    
+  )
 import Network.Hubbub.Queue
   ( AttemptCount(AttemptCount)
   , ContentType(ContentType)
@@ -100,7 +106,7 @@ runSubscriptionEvent ::
   (Maybe Subscription -> Assertion) ->
   Assertion
 runSubscriptionEvent acid rng ev assertion = do
-  assertRightEitherT $ doSubscriptionEvent rng acid ev
+  assertRightEitherT $ doSubscriptionEvent rng (apiImpl acid) ev
   subscription <- findLocalSubscription acid
   assertion subscription  
 
@@ -147,7 +153,7 @@ doPublicationEventTest = do
   acidTest goodPublisher db test
   where
     test acid _ = do
-      distEvents <- assertRightEitherT $ doPublicationEvent acid ev
+      distEvents <- assertRightEitherT $ doPublicationEvent (apiImpl acid) ev
       distEvents @?= [
         dEv (callback "callbackB") Nothing
         , dEv (callback "callbackC") (Just . Secret $ "pw")

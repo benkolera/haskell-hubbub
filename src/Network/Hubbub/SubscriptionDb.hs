@@ -1,51 +1,47 @@
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE DeriveDataTypeable, TypeFamilies, TemplateHaskell #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module Network.Hubbub.SubscriptionDb
-  ( AddSubscription (AddSubscription)
-  , RemoveSubscription (RemoveSubscription)  
-  , Callback (Callback)
-  , GetTopicSubscriptions(GetTopicSubscriptions)
-  , From (From)  
+  ( Callback (Callback)
+  , From (From)
   , HttpResource (HttpResource)
   , Secret (Secret)
   , Subscription (Subscription)
-  , SubscriptionDb (SubscriptionDb)
+  , SubscriptionDbApi(SubscriptionDbApi)
   , Topic (Topic)
-  , addSubscription    
-  , allSubscriptions
-  , emptyDb
+  , addSubscription
+  , removeSubscription
+  , getTopicSubscriptions
   , fromCallback
   , fromFrom
   , fromSecret
   , fromTopic
-  , getAllSubscriptions
-  , getTopicSubscriptions
   , httpResourceQueryString    
-  , httpResourceToText
-  , removeSubscription
+  , httpResourceToText    
   ) where
 
 import Prelude (Integer,Int,String,toInteger)
-import Control.Applicative((<$>))
 import Control.Arrow ((***))
-import Control.Monad (return,join)
-import Control.Monad.Reader(ask)
-import Control.Monad.State(modify,get,put)
-import Data.Acid (Query,Update,makeAcidic)
+import Control.Error (EitherT)
+import Control.Exception.Base (SomeException)
+import Control.Monad (join)
 import Data.Bool (Bool)
-import Data.Function ((.),($),const)
+import Data.Function ((.),($))
 import Data.Eq (Eq)
-import Data.Maybe(Maybe(Just,Nothing),fromMaybe)
+import Data.Maybe(Maybe(Just))
 import Data.List (map)
-import Data.Map (Map,findWithDefault,empty,alter,insert,adjust)
 import Data.Ord (Ord)
-import Data.SafeCopy (deriveSafeCopy,base)
 import Text.Show (Show)
 import Data.Time(UTCTime)
 import Data.Typeable (Typeable)
 import Data.Text(Text,unpack,pack)
-import Network.URL 
+import Network.URL
+  ( URL(URL)
+  , URLType(Absolute)
+  , Host(Host)
+  , Protocol(HTTP)
+  , exportParams
+  , exportURL )
+import System.IO (IO)  
 
 -- | Bottles up all of the things we need to make a HTTP request to either the
 --   Publishing server or the subscriber.     
@@ -71,28 +67,22 @@ httpResourceQueryString :: HttpResource -> Text
 httpResourceQueryString (HttpResource _ _ _ _ qps ) =
   pack . exportParams . map (join (***) unpack) $ qps
 
-$(deriveSafeCopy 0 'base ''HttpResource)
-
 newtype Topic = Topic HttpResource deriving (Show,Typeable,Ord,Eq)
-$(deriveSafeCopy 0 'base ''Topic)
 fromTopic :: Topic -> HttpResource
 fromTopic (Topic t) = t  
 
 newtype Callback = Callback HttpResource deriving (Show,Typeable,Ord,Eq)
-$(deriveSafeCopy 0 'base ''Callback)
 fromCallback :: Callback -> HttpResource
-fromCallback (Callback t) = t    
+fromCallback (Callback t) = t
 
 newtype Secret = Secret Text deriving (Show,Typeable,Ord,Eq)
-$(deriveSafeCopy 0 'base ''Secret)
 fromSecret :: Secret -> Text
 fromSecret (Secret t) = t  
-  
+
 newtype From = From Text deriving (Show,Typeable,Ord,Eq)
-$(deriveSafeCopy 0 'base ''From)
 fromFrom :: From -> Text
 fromFrom (From t) = t    
-  
+
 data Subscription = Subscription
   UTCTime         -- ^ StartedAt
   UTCTime         -- ^ ExpiresAt
@@ -100,40 +90,13 @@ data Subscription = Subscription
   (Maybe From)    -- ^ From
   deriving (Show,Typeable,Eq)
 
-$(deriveSafeCopy 0 'base ''Subscription)
+type SubscriptionDbApiResult = EitherT SomeException IO
+data SubscriptionDbApi = SubscriptionDbApi {
+  addSubscription ::
+     Topic -> Callback -> Subscription -> SubscriptionDbApiResult ()
+  , removeSubscription ::
+     Topic -> Callback -> SubscriptionDbApiResult ()
+  , getTopicSubscriptions ::
+     Topic -> SubscriptionDbApiResult [(Callback,Subscription)]
+  }
 
-type TopicSubscriptions = Map Callback Subscription
-
-data SubscriptionDb = SubscriptionDb {
-  allSubscriptions :: Map Topic TopicSubscriptions
-  } deriving (Typeable,Show,Eq)
-$(deriveSafeCopy 0 'base ''SubscriptionDb)
-
-emptyDb :: SubscriptionDb
-emptyDb = SubscriptionDb empty
-
-getAllSubscriptions :: Query SubscriptionDb (Map Topic TopicSubscriptions)
-getAllSubscriptions = allSubscriptions <$> ask 
-
-getTopicSubscriptions :: Topic -> Query SubscriptionDb TopicSubscriptions
-getTopicSubscriptions t =
-  findWithDefault empty t . allSubscriptions <$> ask
-
-addSubscription :: Topic -> Callback -> Subscription -> Update SubscriptionDb ()
-addSubscription t u s = modify add
-  where
-   add (SubscriptionDb m) = SubscriptionDb $ alter (Just . updateTopicSubs) t m
-   updateTopicSubs = insert u s . fromMaybe empty
-
-removeSubscription :: Topic -> Callback -> Update SubscriptionDb ()
-removeSubscription t u = do
-  (SubscriptionDb m) <- get
-  put . SubscriptionDb $ adjust (alter (const Nothing) u) t m 
-  return ()
-
-$(makeAcidic ''SubscriptionDb [
-  'getAllSubscriptions
-  ,'getTopicSubscriptions
-  ,'addSubscription
-  ,'removeSubscription
-  ])

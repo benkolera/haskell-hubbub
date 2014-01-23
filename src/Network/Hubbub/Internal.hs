@@ -1,7 +1,7 @@
 module Network.Hubbub.Internal
   ( DoDistributionEventError(DoDistHttpError)
-  , DoPublicationEventError(DoPubHttpError,DoPubAcidError)
-  , DoSubscriptionEventError(DoSubHttpError,DoSubAcidError)    
+  , DoPublicationEventError(DoPubHttpError,DoPubApiError)
+  , DoSubscriptionEventError(DoSubHttpError,DoSubApiError)    
   , doDistributionEvent
   , doPublicationEvent
   , doSubscriptionEvent ) where
@@ -18,28 +18,26 @@ import Network.Hubbub.Queue
   ( AttemptCount(AttemptCount)
   , DistributionEvent(DistributionEvent)
   , PublicationEvent
-
   , SubscriptionEvent (Subscribe,Unsubscribe)
-  , LeaseSeconds (LeaseSeconds)
+  , fromLeaseSeconds
   , publicationTopic )
+  
 import Network.Hubbub.SubscriptionDb
-  ( AddSubscription (AddSubscription)
-  , GetTopicSubscriptions(GetTopicSubscriptions)
-  , RemoveSubscription (RemoveSubscription)
-  , Subscription (Subscription)
-  , SubscriptionDb
+  ( Subscription (Subscription)
+  , SubscriptionDbApi
+  , addSubscription
+  , removeSubscription
+  , getTopicSubscriptions
   )
 
 import Prelude (undefined)
-import Control.Exception.Base (IOException)
-import Control.Error (EitherT,tryIO,fmapLT,bimapEitherT)
+import Control.Exception.Base (SomeException)
+import Control.Error (EitherT,fmapLT)
 import Control.Monad (unless,return)
 import Control.Monad.IO.Class (liftIO)
-import Data.Acid(AcidState,query,update)
 import Data.Bool (not)
-import Data.Function (($),(.))
+import Data.Function (($))
 import Data.List (map)
-import Data.Map (assocs)
 import Data.Time(getCurrentTime)
 import Data.DateTime (addSeconds)
 import System.IO (IO)
@@ -48,44 +46,41 @@ import Text.Show (Show)
 
 data DoSubscriptionEventError =
   DoSubHttpError HttpError
-  | DoSubAcidError IOException
+  | DoSubApiError SomeException
   deriving (Show)
 
 doSubscriptionEvent :: RandomGen r =>
   r ->
-  AcidState SubscriptionDb ->
+  SubscriptionDbApi ->
   SubscriptionEvent ->
   EitherT DoSubscriptionEventError IO ()
-doSubscriptionEvent rng acid ev@(Subscribe t cb ls _ s f) = do
+doSubscriptionEvent rng api ev@(Subscribe t cb ls _ s f) = do
   time <- liftIO getCurrentTime
   ok   <- fmapLT DoSubHttpError $ verifySubscriptionEvent rng ev
-  unless (not ok) $ fmapLT DoSubAcidError . tryIO $ doAcidUpdate time
+  unless (not ok) $ fmapLT DoSubApiError $ addSubscription api t cb (sub time)
   where
-    doAcidUpdate tm = update acid (AddSubscription t cb $ createDbSub tm ls s f)
-    createDbSub tm (LeaseSeconds lsecs) = Subscription tm (addSeconds lsecs tm)
+    sub tm = Subscription tm (exp tm) s f
+    exp = addSeconds (fromLeaseSeconds ls)
 
-doSubscriptionEvent rng acid ev@(Unsubscribe t cb _) = do
+doSubscriptionEvent rng api ev@(Unsubscribe t cb _) = do
   ok   <- fmapLT DoSubHttpError $ verifySubscriptionEvent rng ev
-  unless (not ok) $ (fmapLT DoSubAcidError) . tryIO . update acid $ oper
-  where
-    oper = RemoveSubscription t cb
+  unless (not ok) $ fmapLT DoSubApiError $ removeSubscription api t cb
 
 data DoPublicationEventError =
   DoPubHttpError HttpError
-  | DoPubAcidError IOException
+  | DoPubApiError SomeException
   deriving (Show)
 
-doPublicationEvent :: 
-  AcidState SubscriptionDb ->
+doPublicationEvent ::
+  SubscriptionDbApi ->
   PublicationEvent ->
   EitherT DoPublicationEventError IO [DistributionEvent]
-doPublicationEvent acid ev = do
-  subs    <- (bimapEitherT DoPubAcidError assocs) . tryIO . query acid $ getSubs
+doPublicationEvent api ev = do
+  subs    <- fmapLT DoPubApiError $ getTopicSubscriptions api topic 
   (ct,bd) <- fmapLT DoPubHttpError $ getPublishedResource ev
   return $ map (makeDistEvent ct bd) subs
   where
     topic   = publicationTopic ev
-    getSubs = GetTopicSubscriptions topic
     makeDistEvent ct bd (cb ,Subscription _ _ sec _) =
       DistributionEvent
       topic
