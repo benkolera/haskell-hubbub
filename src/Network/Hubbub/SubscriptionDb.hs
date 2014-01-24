@@ -16,7 +16,8 @@ module Network.Hubbub.SubscriptionDb
   , fromSecret
   , fromTopic
   , httpResourceQueryString    
-  , httpResourceToText    
+  , httpResourceToText
+  , shutdownDb
   ) where
 
 import Prelude (Integer,Int,String,toInteger)
@@ -98,5 +99,6 @@ data SubscriptionDbApi = SubscriptionDbApi {
      Topic -> Callback -> SubscriptionDbApiResult ()
   , getTopicSubscriptions ::
      Topic -> SubscriptionDbApiResult [(Callback,Subscription)]
+  , shutdownDb :: IO ()
   }
 

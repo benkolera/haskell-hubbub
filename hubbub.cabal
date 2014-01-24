@@ -61,9 +61,9 @@ library
                       , errors
                       , failure
                       , http-conduit
-                      , lens
                       , mtl
                       , random
+                      , safe
                       , safecopy
                       , stm
                       , text
@@ -108,9 +108,9 @@ test-suite Tests
                       , failure
                       , http-conduit
                       , http-types
-                      , lens
                       , mtl
                       , random
+                      , safe
                       , safecopy
                       , scotty 
                       , stm 

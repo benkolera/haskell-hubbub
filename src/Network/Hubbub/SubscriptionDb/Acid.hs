@@ -7,7 +7,7 @@ module Network.Hubbub.SubscriptionDb.Acid
   , GetTopicSubscriptions(GetTopicSubscriptions)
   , SubscriptionDb (SubscriptionDb)
   , addSubscription
-  , apiImpl
+  , acidDbApi
   , allSubscriptions
   , emptyDb
   , getAllSubscriptions
@@ -29,7 +29,7 @@ import Control.Error (syncIO)
 import Control.Monad (return)
 import Control.Monad.Reader(ask)
 import Control.Monad.State(modify,get,put)
-import Data.Acid (AcidState,Query,Update,update,query,makeAcidic)
+import Data.Acid (AcidState,Query,Update,closeAcidState,update,query,makeAcidic)
 import Data.Function ((.),($),const)
 import Data.Functor (fmap)
 import Data.Eq (Eq)
@@ -83,9 +83,10 @@ $(makeAcidic ''SubscriptionDb [
   ,'removeSubscription
   ])
 
-apiImpl :: AcidState SubscriptionDb -> SubscriptionDbApi
-apiImpl acid = SubscriptionDbApi add remove getSubs
+acidDbApi :: AcidState SubscriptionDb -> SubscriptionDbApi
+acidDbApi acid = SubscriptionDbApi add remove getSubs shutdown
   where
     add t cb sb = syncIO . update acid $ AddSubscription t cb sb
     remove t cb = syncIO . update acid $ RemoveSubscription t cb
-    getSubs t   = fmap assocs . syncIO . query  acid $ GetTopicSubscriptions t 
+    getSubs t   = fmap assocs . syncIO . query  acid $ GetTopicSubscriptions t
+    shutdown    = closeAcidState acid

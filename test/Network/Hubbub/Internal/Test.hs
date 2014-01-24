@@ -16,7 +16,7 @@ import Network.Hubbub.SubscriptionDb
 import Network.Hubbub.SubscriptionDb.Acid
   ( GetTopicSubscriptions(GetTopicSubscriptions)
   , SubscriptionDb(SubscriptionDb)
-  , apiImpl
+  , acidDbApi
   , emptyDb    
   )
 import Network.Hubbub.Queue
@@ -106,7 +106,7 @@ runSubscriptionEvent ::
   (Maybe Subscription -> Assertion) ->
   Assertion
 runSubscriptionEvent acid rng ev assertion = do
-  assertRightEitherT $ doSubscriptionEvent rng (apiImpl acid) ev
+  assertRightEitherT $ doSubscriptionEvent rng (acidDbApi acid) ev
   subscription <- findLocalSubscription acid
   assertion subscription  
 
@@ -153,7 +153,7 @@ doPublicationEventTest = do
   acidTest goodPublisher db test
   where
     test acid _ = do
-      distEvents <- assertRightEitherT $ doPublicationEvent (apiImpl acid) ev
+      distEvents <- assertRightEitherT $ doPublicationEvent (acidDbApi acid) ev
       distEvents @?= [
         dEv (callback "callbackB") Nothing
         , dEv (callback "callbackC") (Just . Secret $ "pw")

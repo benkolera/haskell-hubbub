@@ -4,8 +4,13 @@ module Network.Hubbub.Queue
   , DistributionEvent (DistributionEvent)
   , LeaseSeconds (LeaseSeconds)
   , ResourceBody (ResourceBody)
+  , Retryable
+  , RetryDelay (RetryDelayMillis)
   , SubscriptionEvent (Subscribe,Unsubscribe)
   , PublicationEvent (PublicationEvent)
+  , attempts
+  , incrementAttempts
+  , retryDelay
   , distribute
   , distributionAttemptCount
   , distributionBody
@@ -25,6 +30,8 @@ module Network.Hubbub.Queue
   , publish
   , publicationAttemptCount
   , publicationTopic
+  , queueLoop
+  , retryDelaySeconds
   , subscribe
   , subscribeAttemptCount 
   , subscribeCallback
@@ -45,15 +52,20 @@ import Network.Hubbub.SubscriptionDb
   , Callback(..)            
   )
 
-import Prelude (Integer)
-import Control.Monad ((>>=))
+import Prelude (Integer,(+),(*),fromIntegral)
+import Control.Error (EitherT,runEitherT)
+import Control.Monad (return)
+import Control.Concurrent (threadDelay,forkIO)
 import Control.Concurrent.STM(STM,atomically)
 import Control.Concurrent.STM.TQueue(TQueue,writeTQueue,readTQueue,newTQueue)
 import qualified Data.ByteString      as Bs
-import qualified Data.ByteString.Lazy as BsL 
+import qualified Data.ByteString.Lazy as BsL
+import Data.Either (Either(Left,Right))
 import Data.Eq (Eq)
-import Data.Function ((.),($))
-import Data.Maybe (Maybe)
+import Data.Function ((.),($),const)
+import Data.Functor (fmap)
+import Data.Maybe (Maybe,maybe)
+import Safe (atMay)
 import Text.Show (Show)
 import System.IO (IO)
 
@@ -73,6 +85,24 @@ newtype ContentType  = ContentType Bs.ByteString deriving (Show,Eq)
 fromContentType :: ContentType -> Bs.ByteString
 fromContentType (ContentType ct) = ct
 
+newtype RetryDelay = RetryDelayMillis Integer deriving (Show,Eq)
+retryDelayPicos :: RetryDelay -> Integer
+retryDelayPicos (RetryDelayMillis ms) = ms * 1000
+retryDelaySeconds :: RetryDelay -> Integer
+retryDelaySeconds (RetryDelayMillis ms) = ms * 1000*1000
+
+class Retryable a where
+  attempts :: a -> Integer
+  incrementAttempts :: a -> a
+
+  retryDelay :: a -> Maybe RetryDelay
+  retryDelay =
+    fmap RetryDelayMillis . atMay retrySchedule . fromIntegral . (+2) . attempts
+    where 
+      retrySchedule = [50,100,500,1000,5000]
+
+
+
 data SubscriptionEvent =
   Subscribe {
     subscribeTopic:: Topic
@@ -89,10 +119,23 @@ data SubscriptionEvent =
     }
   deriving (Show,Eq)
 
+instance Retryable SubscriptionEvent where
+  attempts ev@(Subscribe {}) = fromAttemptCount . subscribeAttemptCount $ ev
+  attempts ev@(Unsubscribe {}) = fromAttemptCount . unsubscribeAttemptCount $ ev
+  incrementAttempts ev@(Subscribe { subscribeAttemptCount = c }) =
+    ev { subscribeAttemptCount = AttemptCount . (+1) . fromAttemptCount $ c }
+  incrementAttempts ev@(Unsubscribe { unsubscribeAttemptCount = c }) =
+    ev { unsubscribeAttemptCount = AttemptCount . (+1) . fromAttemptCount $ c }
+  
 data PublicationEvent = PublicationEvent {
   publicationTopic::Topic
   , publicationAttemptCount::AttemptCount
   } deriving (Eq,Show)
+
+instance Retryable PublicationEvent where
+  attempts (PublicationEvent _ (AttemptCount c)) = c
+  incrementAttempts (PublicationEvent t (AttemptCount c)) =
+    PublicationEvent t (AttemptCount $ c + 1)
 
 data DistributionEvent = DistributionEvent {
   distributionTopic::Topic                    
@@ -102,6 +145,11 @@ data DistributionEvent = DistributionEvent {
   , distributionSecret::Maybe Secret
   , distributionAttemptCount::AttemptCount
   } deriving (Eq,Show)
+
+instance Retryable DistributionEvent where
+  attempts DistributionEvent { distributionAttemptCount = AttemptCount c } = c
+  incrementAttempts ev@DistributionEvent{}  =
+    ev { distributionAttemptCount = AttemptCount . (+1) . attempts $ ev }
 
 emptySubscriptionQueue :: STM (TQueue SubscriptionEvent)
 emptySubscriptionQueue = newTQueue
@@ -121,27 +169,46 @@ emptyDistributionQueue = newTQueue
 distribute :: TQueue DistributionEvent -> DistributionEvent -> STM ()
 distribute = writeTQueue
 
-nextSubscriptionEvent :: TQueue SubscriptionEvent -> STM SubscriptionEvent
-nextSubscriptionEvent = readTQueue
-
-nextPublicationEvent :: TQueue PublicationEvent -> STM PublicationEvent
-nextPublicationEvent = readTQueue
-
-nextDistributionEvent :: TQueue DistributionEvent -> STM DistributionEvent
-nextDistributionEvent = readTQueue
-
-queueLoop :: (TQueue a -> STM a) -> (a -> IO ()) -> TQueue a -> IO ()
-queueLoop pop f q = loop
+queueLoop :: Retryable a =>
+  (a -> EitherT e IO ()) ->
+  (a -> e -> Maybe RetryDelay -> IO ()) ->
+  TQueue a ->
+  IO ()
+queueLoop doEvent logErr q = loop
   where
     loop = do
-      (atomically . pop $ q) >>= f
+      ev  <- atomically . readTQueue $ q
+      res <- runEitherT $ doEvent ev
+      case res of
+        (Right _) -> return ()
+        (Left e)  ->
+          let newEv = incrementAttempts ev
+              retry = retryDelay newEv
+          in do
+            maybe (return ()) (requeue newEv) retry 
+            logErr newEv e retry 
       loop
+    requeue ev delay = fmap (const ()) . forkIO $ do
+      threadDelay . fromIntegral . retryDelayPicos $ delay
+      atomically (writeTQueue q ev)
 
-subscriptionLoop :: (SubscriptionEvent -> IO ()) -> TQueue SubscriptionEvent -> IO ()
-subscriptionLoop = queueLoop nextSubscriptionEvent
+subscriptionLoop ::
+  (SubscriptionEvent -> EitherT e IO ()) ->
+  (SubscriptionEvent -> e -> Maybe RetryDelay -> IO ()) ->
+  TQueue SubscriptionEvent ->
+  IO ()
+subscriptionLoop = queueLoop
 
-publicationLoop :: (PublicationEvent -> IO ()) -> TQueue PublicationEvent -> IO ()
-publicationLoop = queueLoop nextPublicationEvent
+publicationLoop ::
+  (PublicationEvent -> EitherT e IO ()) ->
+  (PublicationEvent -> e -> Maybe RetryDelay -> IO ()) ->
+  TQueue PublicationEvent ->
+  IO ()
+publicationLoop = queueLoop
 
-distributionLoop :: (DistributionEvent -> IO ()) -> TQueue DistributionEvent -> IO ()
-distributionLoop = queueLoop nextDistributionEvent
+distributionLoop ::
+  (DistributionEvent -> EitherT e IO ()) ->
+  (DistributionEvent -> e -> Maybe RetryDelay -> IO ()) ->  
+  TQueue DistributionEvent ->
+  IO ()
+distributionLoop = queueLoop
