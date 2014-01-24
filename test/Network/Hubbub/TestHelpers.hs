@@ -9,6 +9,7 @@ module Network.Hubbub.TestHelpers
   , resource
   , scottyServer
   , scottyTest
+  , scottyTestWithShutdown
   , topic
   ) where
 
@@ -27,7 +28,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Either (EitherT,runEitherT)
 import Data.Bool (Bool(False))
 import Data.Either (Either(Right,Left))
-import Data.Function ((.),($),const)
+import Data.Function ((.),($),const,flip)
 import Data.List ((++))
 import Data.Text (append,Text)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
@@ -45,17 +46,20 @@ callback n = Callback $ resource ("/callback/" `append` n) []
 resource :: Text -> [(Text,Text)] -> HttpResource
 resource = HttpResource False "localhost" 3000
 
-httpTest :: IO () -> Assertion -> Assertion
-httpTest server assert = bracket
+httpTest :: IO () -> IO() -> Assertion -> Assertion
+httpTest server shutdown assert = bracket
   (liftIO $ forkIO server)
-  killThread
+  ((shutdown >>) . killThread)
   (const assert)
 
 scottyServer :: ScottyM () -> IO ()
 scottyServer = scotty 3000 . (middleware logStdoutDev >>)
 
 scottyTest :: ScottyM () -> Assertion -> Assertion
-scottyTest sm = httpTest (scottyServer sm)   
+scottyTest = flip scottyTestWithShutdown (return ())
+
+scottyTestWithShutdown :: ScottyM () -> IO () -> Assertion -> Assertion
+scottyTestWithShutdown sm = httpTest (scottyServer sm) 
 
 localTopic :: [(Text,Text)] -> Topic
 localTopic = Topic . resource "topic"

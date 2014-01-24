@@ -1,15 +1,32 @@
-module Network.Hubbub (initializeHubbubAcid,shutdownHubbub) where
+module Network.Hubbub 
+  ( Callback(Callback)
+  , HttpResource(HttpResource)
+  , HubbubConfig(HubbubConfig)
+  , HubbubAcidConfig(HubbubAcidConfig)
+  , HubbubEnv
+  , LeaseSeconds(LeaseSeconds)
+  , Secret(Secret)
+  , ServerUrl(ServerUrl)
+  , Topic(Topic)
+  , initializeHubbubAcid
+  , publish
+  , shutdownHubbub
+  , subscribe
+  , unsubscribe
+  ) where
 
 import Network.Hubbub.Internal
   ( doDistributionEvent
   , doSubscriptionEvent
   , doPublicationEvent )
-import Network.Hubbub.Http (ServerUrl)
+import Network.Hubbub.Http (ServerUrl(ServerUrl))
 import Network.Hubbub.Queue
-  ( DistributionEvent
-  , PublicationEvent
+  ( AttemptCount(AttemptCount)
+  , DistributionEvent
+  , LeaseSeconds(LeaseSeconds)    
+  , PublicationEvent(PublicationEvent)
   , RetryDelay
-  , SubscriptionEvent
+  , SubscriptionEvent(Subscribe,Unsubscribe)
   , emptyDistributionQueue
   , emptyPublicationQueue
   , emptySubscriptionQueue
@@ -19,7 +36,14 @@ import Network.Hubbub.Queue
   , subscriptionLoop )
 
 import qualified Network.Hubbub.Queue as Q 
-import Network.Hubbub.SubscriptionDb (SubscriptionDbApi,shutdownDb)
+import Network.Hubbub.SubscriptionDb
+  ( Callback(Callback)
+  , From(From)
+  , HttpResource(HttpResource)
+  , Secret(Secret)
+  , SubscriptionDbApi
+  , Topic(Topic)
+  , shutdownDb )
 import Network.Hubbub.SubscriptionDb.Acid (acidDbApi,emptyDb)
 
 import Prelude (Int)
@@ -65,15 +89,31 @@ initializeHubbubAcid conf acidConf = do
 shutdownHubbub :: HubbubEnv -> IO ()
 shutdownHubbub = shutdownDb . subscriptionDbApi
 
-subscribe :: HubbubEnv -> SubscriptionEvent -> IO ()
-subscribe env =  atomically . Q.subscribe (subscriptionQueue env)
+subscribe ::
+  HubbubEnv ->
+  Topic ->
+  Callback ->
+  LeaseSeconds ->
+  Maybe Secret ->
+  Maybe From ->
+  IO ()
+subscribe env t cb ls s f = atomically $ Q.subscribe (subscriptionQueue env) ev
+  where ev = Subscribe t cb ls firstAttempt s f
 
-publish :: HubbubEnv -> PublicationEvent -> IO ()
-publish env = atomically . Q.publish (publicationQueue env) 
+unsubscribe :: HubbubEnv -> Topic -> Callback -> IO ()
+unsubscribe env t cb = atomically $ Q.subscribe (subscriptionQueue env) ev
+  where ev = Unsubscribe t cb firstAttempt
+
+publish :: HubbubEnv -> Topic -> IO ()
+publish env t =
+  atomically . Q.publish (publicationQueue env) $ PublicationEvent t firstAttempt
 
 --------------------------------------------------------------------------------
 --- Private Stuff Below
 --------------------------------------------------------------------------------
+
+firstAttempt :: AttemptCount
+firstAttempt = AttemptCount 1
 
 initializeHubbub :: HubbubConfig -> SubscriptionDbApi -> IO HubbubEnv
 initializeHubbub c dbApi = do

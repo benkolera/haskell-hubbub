@@ -66,6 +66,7 @@ library
                       , safe
                       , safecopy
                       , stm
+                      , temporary
                       , text
                       , time
                       , transformers
@@ -114,6 +115,7 @@ test-suite Tests
                       , safecopy
                       , scotty 
                       , stm 
+                      , temporary
                       , text
                       , time
                       , transformers
