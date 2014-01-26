@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Subscribed resource</title>
+  <link rel="stylesheet" href="/css/main.css">
+  <script src="/js/jquery-2.1.0.min.js"></script>
+  <script src="/js/ICanHaz.min.js"></script>
+  <script src="/js/client.js"></script>
+
+  <script id="posts" type="text/html">
+    <div>
+      {{#posts}}
+      <div class="post">
+        <h2>{{ subject }}</h2>
+        <pre>{{ body }}</pre>
+      </div>
+      {{/posts}}
+    </div>
+  </script>
+
+  <script type="text/javascript">
+    $(document).ready(function () {
+      var ws;
+      function newWs() {
+        var host = window.location.hostname;
+        if(host == '') host = 'localhost';
+        var uri = 'ws://' + host + ':5002';
+
+        var Socket = "MozWebSocket" in window ? MozWebSocket : WebSocket;
+        var out = new Socket(uri);
+        out.onmessage = function(e) { 
+          var data = { posts: jQuery.parseJSON( e.data ) };
+          $('#postList').html(ich.posts(data));
+        }
+        return out;
+      }
+
+      ws = newWs();
+    });
+  </script>
+
+</head>
+<body>
+  <div class="content">
+    <div class="header">
+      <h1>Subscription Watcher</h1>
+      <em>The published resource will appear below</em>
+    </div>
+    <div id="postList"></div>
+  </div>
+</body>
+</html>

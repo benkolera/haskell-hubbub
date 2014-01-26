@@ -52,7 +52,7 @@ import Network.Hubbub.SubscriptionDb
   , Callback(..)            
   )
 
-import Prelude (Integer,(+),(*),fromIntegral)
+import Prelude (Float,Integer,(/),(-),(+),(*),fromIntegral)
 import Control.Error (EitherT,runEitherT)
 import Control.Monad (return)
 import Control.Concurrent (threadDelay,forkIO)
@@ -88,8 +88,8 @@ fromContentType (ContentType ct) = ct
 newtype RetryDelay = RetryDelayMillis Integer deriving (Show,Eq)
 retryDelayPicos :: RetryDelay -> Integer
 retryDelayPicos (RetryDelayMillis ms) = ms * 1000
-retryDelaySeconds :: RetryDelay -> Integer
-retryDelaySeconds (RetryDelayMillis ms) = ms * 1000*1000
+retryDelaySeconds :: RetryDelay -> Float
+retryDelaySeconds (RetryDelayMillis ms) = fromIntegral ms / 1000
 
 class Retryable a where
   attempts :: a -> Integer
@@ -97,9 +97,13 @@ class Retryable a where
 
   retryDelay :: a -> Maybe RetryDelay
   retryDelay =
-    fmap RetryDelayMillis . atMay retrySchedule . fromIntegral . (+2) . attempts
+    fmap RetryDelayMillis .
+    atMay retrySchedule .
+    fromIntegral .
+    (+ (-1)) .
+    attempts
     where 
-      retrySchedule = [50,100,500,1000,5000]
+      retrySchedule = [100,500,1000,5000,10000]
 
 
 

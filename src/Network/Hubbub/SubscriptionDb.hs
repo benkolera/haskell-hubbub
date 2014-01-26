@@ -15,12 +15,13 @@ module Network.Hubbub.SubscriptionDb
   , fromFrom
   , fromSecret
   , fromTopic
-  , httpResourceQueryString    
+  , httpResourceFromText    
+  , httpResourceQueryString
   , httpResourceToText
   , shutdownDb
   ) where
 
-import Prelude (Integer,Int,String,toInteger)
+import Prelude (Integer,Int,String,toInteger,fromIntegral)
 import Control.Arrow ((***))
 import Control.Error (EitherT)
 import Control.Exception.Base (SomeException)
@@ -28,7 +29,7 @@ import Control.Monad (join)
 import Data.Bool (Bool)
 import Data.Function ((.),($))
 import Data.Eq (Eq)
-import Data.Maybe(Maybe(Just))
+import Data.Maybe(Maybe(Just,Nothing),maybe)
 import Data.List (map)
 import Data.Ord (Ord)
 import Text.Show (Show)
@@ -41,7 +42,8 @@ import Network.URL
   , Host(Host)
   , Protocol(HTTP)
   , exportParams
-  , exportURL )
+  , exportURL
+  , importURL )
 import System.IO (IO)  
 
 -- | Bottles up all of the things we need to make a HTTP request to either the
@@ -54,6 +56,22 @@ data HttpResource =
     Text            -- ^ Path    
     [(Text,Text)]   -- ^ QueryParams
     deriving (Eq,Show,Typeable,Ord)
+
+httpResourceFromText :: Text -> Maybe HttpResource
+httpResourceFromText t = do
+  url <- importURL . unpack $ t
+  case url of
+    (URL (Absolute (Host (HTTP sec) hostnm port)) path params) ->
+      Just $ HttpResource
+      sec
+      (pack hostnm)
+      (maybe (defPort sec) fromIntegral port)
+      (pack path)
+      (paramsToText params)
+    _ -> Nothing  
+  where
+    paramsToText   = map (join (***) pack)
+    defPort secure = if secure then 443 else 80
 
 httpResourceToText :: HttpResource -> Text
 httpResourceToText (HttpResource sec h prt pth qps) =

@@ -94,14 +94,14 @@ hubbubUberTest = withSystemTempDirectory "HubbubUberTest" test
       liftIO $ atomically $ writeTQueue q (cb,sg,b)
 
     sub env cb t sec =
-      subscribe env (topic t) (callback cb t) (LeaseSeconds 500) sec Nothing
+      subscribe env (topic t) (callback cb t) Nothing sec Nothing
     unsub env cb t = unsubscribe env (topic t) (callback cb t)
 
     callback cbName tName =
       Callback $ resource (T.concat ["/subscriber/",cbName,"/",tName]) []
     topic tName = Topic $ resource (T.concat ["/publisher/",tName]) []
     
-    config = HubbubConfig 1 1 1 localHub
+    config = HubbubConfig 1 1 1 localHub (LeaseSeconds 500)
     acidConfig = HubbubAcidConfig . Just
 
     allDist tq = do

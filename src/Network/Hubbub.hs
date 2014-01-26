@@ -1,5 +1,6 @@
 module Network.Hubbub 
   ( Callback(Callback)
+  , From(From)
   , HttpResource(HttpResource)
   , HubbubConfig(HubbubConfig)
   , HubbubAcidConfig(HubbubAcidConfig)
@@ -9,6 +10,7 @@ module Network.Hubbub
   , ServerUrl(ServerUrl)
   , Topic(Topic)
   , initializeHubbubAcid
+  , httpResourceFromText
   , publish
   , shutdownHubbub
   , subscribe
@@ -43,28 +45,31 @@ import Network.Hubbub.SubscriptionDb
   , Secret(Secret)
   , SubscriptionDbApi
   , Topic(Topic)
+  , httpResourceFromText
   , shutdownDb )
 import Network.Hubbub.SubscriptionDb.Acid (acidDbApi,emptyDb)
 
 import Prelude (Int)
-import Control.Applicative ((<$>),(<*>))
 import Control.Concurrent (ThreadId,forkIO)
 import Control.Concurrent.STM(TQueue,atomically)
 import Control.Monad (replicateM,return,mapM_)
 import Control.Monad.IO.Class (liftIO)
 import Data.Acid (openLocalState,openLocalStateFrom)
-import Data.Function (($),(.),flip)
-import Data.List (concat,(++))
-import Data.Maybe (Maybe,maybe)
+import Data.Function (($),(.))
+import Data.List (concat)
+import Data.Maybe (Maybe,maybe,fromMaybe)
 import System.IO (IO,FilePath,putStrLn)
 import System.Random (StdGen,getStdGen)
+import Text.Printf (printf)
 import Text.Show (Show,show)
+
 
 data HubbubConfig = HubbubConfig {
   subscriptionThreads::Int
   , publicationThreads::Int
   , distributionThreads::Int
   , serverUrl::ServerUrl
+  , defaultLeaseTimeout::LeaseSeconds
   }
 
 data HubbubAcidConfig = HubbubAcidConfig {
@@ -72,13 +77,14 @@ data HubbubAcidConfig = HubbubAcidConfig {
   }
 
 data HubbubEnv = HubbubEnv {
-  subscriptionThreadIds::[ThreadId]
-  , publicationThreadIds::[ThreadId]
-  , distributionThreadIds::[ThreadId]
+  _subscriptionThreadIds::[ThreadId]
+  , _publicationThreadIds::[ThreadId]
+  , _distributionThreadIds::[ThreadId]
   , subscriptionQueue::TQueue SubscriptionEvent
   , publicationQueue::TQueue PublicationEvent
-  , distributionQueue::TQueue DistributionEvent
+  , _distributionQueue::TQueue DistributionEvent
   , subscriptionDbApi::SubscriptionDbApi
+  , envDefaultLeaseTimeout::LeaseSeconds    
   }
 
 initializeHubbubAcid :: HubbubConfig -> HubbubAcidConfig -> IO HubbubEnv
@@ -93,12 +99,14 @@ subscribe ::
   HubbubEnv ->
   Topic ->
   Callback ->
-  LeaseSeconds ->
+  Maybe LeaseSeconds ->
   Maybe Secret ->
   Maybe From ->
   IO ()
-subscribe env t cb ls s f = atomically $ Q.subscribe (subscriptionQueue env) ev
-  where ev = Subscribe t cb ls firstAttempt s f
+subscribe env t cb lsm s f = atomically $ Q.subscribe (subscriptionQueue env) ev
+  where
+    ev = Subscribe t cb ls firstAttempt s f
+    ls = fromMaybe (envDefaultLeaseTimeout env) lsm
 
 unsubscribe :: HubbubEnv -> Topic -> Callback -> IO ()
 unsubscribe env t cb = atomically $ Q.subscribe (subscriptionQueue env) ev
@@ -113,7 +121,7 @@ publish env t =
 --------------------------------------------------------------------------------
 
 firstAttempt :: AttemptCount
-firstAttempt = AttemptCount 1
+firstAttempt = AttemptCount 0
 
 initializeHubbub :: HubbubConfig -> SubscriptionDbApi -> IO HubbubEnv
 initializeHubbub c dbApi = do
@@ -124,15 +132,15 @@ initializeHubbub c dbApi = do
   sTs <- startNThreads (subscriptionThreads c) (subscriptionThread rng dbApi sQ)
   pTs <- startNThreads (publicationThreads c)  (publicationThread dbApi dQ pQ)
   dTs <- startNThreads (distributionThreads c) (distributionThread sUrl dQ)
-  return $ HubbubEnv sTs pTs dTs sQ pQ dQ dbApi
+  return $ HubbubEnv sTs pTs dTs sQ pQ dQ dbApi lto
   where
     sUrl = serverUrl c
+    lto  = defaultLeaseTimeout c
 
 subscriptionThread :: StdGen -> SubscriptionDbApi -> TQueue SubscriptionEvent -> IO ()
 subscriptionThread rng api = subscriptionLoop handleEvent logError
   where
     handleEvent = doSubscriptionEvent rng api
-    logError ev err requeued = return ()
 
 publicationThread ::
   SubscriptionDbApi ->
@@ -144,14 +152,11 @@ publicationThread api distQ = publicationLoop handleEvent logError
     handleEvent ev = do
       distEvs <- doPublicationEvent api ev
       liftIO $ atomically $ mapM_ (Q.distribute distQ) distEvs
-      
-    logError ev err requeued = return ()
 
 distributionThread :: ServerUrl -> TQueue DistributionEvent -> IO ()
 distributionThread surl = distributionLoop handleEvent logError
   where
     handleEvent = doDistributionEvent surl
-    logError ev err requeued = return ()
 
 logError :: (Show a,Show e) => a -> e -> Maybe RetryDelay -> IO ()
 logError event err retryDelay = putStrLn $ concat
@@ -166,7 +171,7 @@ logError event err retryDelay = putStrLn $ concat
     retryMessage = maybe retryDiscarded retryScheduled retryDelay
     retryScheduled rt = concat [
       " It will be retried in "
-      , show . retryDelaySeconds $ rt
+      , printf "%.3f" . retryDelaySeconds $ rt
       , " seconds"
       ]
     retryDiscarded = " It has failed too many times and has been discarded."

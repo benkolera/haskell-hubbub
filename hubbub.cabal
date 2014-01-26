@@ -31,20 +31,89 @@ executable hubbub
   main-is:              Main.hs
 
   build-depends:        base ==4.6.*
+                        , http-types
                         , hubbub
-  hs-source-dirs:       src
+                        , resourcet
+                        , scotty 
+                        , text
+                        , transformers
+                        , wai-extra
   ghc-options:          -Wall -Werror
   default-language:     Haskell2010
   default-extensions:   OverloadedStrings
                         NoImplicitPrelude 
 
+executable hubbub-mock-publisher
+  if !flag(testing)
+    Buildable:          True          
+  else
+    Buildable:          False
+
+  main-is:              Publisher.hs
+
+  build-depends:        base ==4.6.*
+                        , acid-state
+                        , aeson
+                        , blaze-html
+                        , http-conduit
+                        , http-types
+                        , mtl
+                        , scotty 
+                        , text
+                        , transformers
+                        , safecopy
+                        , wai-middleware-static
+                        , wai-extra
+  ghc-options:          -Wall -Werror
+  default-language:     Haskell2010
+  default-extensions:   OverloadedStrings
+                        NoImplicitPrelude 
+
+executable hubbub-mock-subscriber
+  if !flag(testing)
+    Buildable:          True          
+  else
+    Buildable:          False
+
+  main-is:              Subscriber.hs
+
+  build-depends:        base ==4.6.*
+                        , aeson
+                        , containers
+                        , http-conduit
+                        , http-types
+                        , mtl
+                        , random
+                        , scotty 
+                        , text
+                        , transformers
+                        , safecopy
+                        , stm
+                        , uuid
+                        , websockets         
+                        , wai
+                        , wai-extra
+                        , wai-middleware-static
+                        , wai-websockets
+                        , warp
+                           
+  ghc-options:          -Wall -Werror
+  default-language:     Haskell2010
+  default-extensions:   OverloadedStrings
+                        NoImplicitPrelude 
 
 library
   if !flag(testing)
     exposed-modules:    Network.Hubbub
   else
     exposed-modules:    
-
+  other-modules:        Network.Hubbub.Hmac
+                      , Network.Hubbub.Http
+                      , Network.Hubbub.Internal
+                      , Network.Hubbub.Queue
+                      , Network.Hubbub.SubscriptionDb
+                      , Network.Hubbub.SubscriptionDb.Acid
+                     
   build-depends:        base == 4.*
                       , acid-state
                       , aeson
@@ -61,8 +130,9 @@ library
                       , errors
                       , failure
                       , http-conduit
+                      , http-types
                       , mtl
-                      , random
+                      , random 
                       , safe
                       , safecopy
                       , stm

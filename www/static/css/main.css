@@ -1,0 +1,44 @@
+.header {
+    padding-bottom: 10px;
+    border-bottom: 1px solid #BBB;
+}
+
+.content {
+    padding: 10px 20px;
+    width: 400px;
+    background-color: #FFF;
+}
+
+body {
+    color: #666;
+    font-family: "HelveticaNeueLight", "HelveticaNeue-Light", "Helvetica Neue Light", "HelveticaNeue", "Helvetica Neue", 'TeXGyreHerosRegular', "Helvetica", "Tahoma", "Geneva", "Arial", sans-serif; font-weight:300; font-stretch:normal; - See more at: http://rachaelmoore.name/posts/design/css/web-safe-helvetica-font-stack/#sthash.XVGA1q3g.dpuf;
+}
+
+h1,h2,h3 {
+    color: #333;
+}
+
+.post {
+    border-top: 1px dashed #CCC;
+    margin-bottom: 30px;
+}
+
+.post:last-child {
+    border-bottom: 1px dashed #CCC;
+    padding-bottom: 20px;
+}
+
+.post pre {
+    font-family: "HelveticaNeueLight", "HelveticaNeue-Light", "Helvetica Neue Light", "HelveticaNeue", "Helvetica Neue", 'TeXGyreHerosRegular', "Helvetica", "Tahoma", "Geneva", "Arial", sans-serif; font-weight:300; font-stretch:normal; - See more at: http://rachaelmoore.name/posts/design/css/web-safe-helvetica-font-stack/#sthash.XVGA1q3g.dpuf
+}
+
+
+fieldset {
+    width: 200px;
+}
+
+input, textarea, label {
+    display: block;
+    margin-top: 5px;
+    width: 100%;
+}

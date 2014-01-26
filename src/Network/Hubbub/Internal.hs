@@ -66,6 +66,7 @@ doSubscriptionEvent rng api ev@(Unsubscribe t cb _) = do
   ok   <- fmapLT DoSubHttpError $ verifySubscriptionEvent rng ev
   unless (not ok) $ fmapLT DoSubApiError $ removeSubscription api t cb
 
+
 data DoPublicationEventError =
   DoPubHttpError HttpError
   | DoPubApiError SomeException
