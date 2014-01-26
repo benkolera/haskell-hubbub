@@ -10,6 +10,7 @@ module Network.Hubbub.TestHelpers
   , scottyServer
   , scottyTest
   , scottyTestWithShutdown
+  , subscription
   , topic
   ) where
 
@@ -18,7 +19,9 @@ import Network.Hubbub.Http (ServerUrl(ServerUrl))
 import Network.Hubbub.SubscriptionDb 
   ( HttpResource(HttpResource)
   , Topic(Topic)
-  , Callback(Callback))
+  , Callback(Callback)
+  , From(From)
+  , Subscription(Subscription) )
 
 import Prelude (undefined)
 import Control.Concurrent (forkIO,killThread)
@@ -27,10 +30,13 @@ import Control.Monad ((=<<),(>>),return)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Either (EitherT,runEitherT)
 import Data.Bool (Bool(False))
+import Data.DateTime (addSeconds)
 import Data.Either (Either(Right,Left))
 import Data.Function ((.),($),const,flip)
 import Data.List ((++))
+import Data.Maybe (Maybe(Nothing,Just))
 import Data.Text (append,Text)
+import Data.Time (UTCTime)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import System.IO (IO)
 import Test.Tasty.HUnit (Assertion,assertFailure)
@@ -79,3 +85,6 @@ assertRight (Right a) = return a
 
 assertRightEitherT :: Show e => EitherT e IO a -> IO a
 assertRightEitherT = (assertRight =<<) . runEitherT 
+
+subscription :: UTCTime -> Text -> Subscription
+subscription t n = Subscription t (addSeconds 300 t) Nothing (Just . From $ n)

@@ -49,19 +49,10 @@ that should be a great boost to get into haskell and do something productive.
 * Project Structure & Cabal Setup
 * Unit testing via Tasty (HUnit and Quickcheck)
 * Acid State for persisting program state to disk in a transactional way.
+* 
 * Using STM to do very simple in memory message queuing.
 * Http Conduit for making HTTP Requests
 * Scotty for producing a HTTP API
+* JSON Serialisation
+* Websockets for pushing data to a browser client.
 
-Topics not Covered
-------------------
-
-There are some topics that are common to web programming that aren't covered in
-this project. They are:
-
-* RDBMS Integration: This probably should be in there, but I don't really want
-  to force non-haskell deps on people that want to run this code.
-* JSON Serialisation: The hubbub spec doesn't use JSON in the protocol, and JSON
-  documents themselves don't have enough metadata to be able to diff them in a
-  way that would be meaningful to the subscribers. We could do something with
-  HAL if we were keen, but I'm not sure I have the time. 

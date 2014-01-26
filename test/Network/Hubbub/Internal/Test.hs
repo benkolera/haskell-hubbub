@@ -7,18 +7,15 @@ import Network.Hubbub.Internal
 
 import Network.Hubbub.SubscriptionDb
   ( Callback
-  , From(From)
   , Secret(Secret)
   , Subscription(Subscription)
+  , SubscriptionDbApi 
   , Topic
+  , addSubscription
+  , getTopicSubscriptions
   )
 
-import Network.Hubbub.SubscriptionDb.Acid
-  ( GetTopicSubscriptions(GetTopicSubscriptions)
-  , SubscriptionDb(SubscriptionDb)
-  , acidDbApi
-  , emptyDb    
-  )
+import Network.Hubbub.SubscriptionDb.SqLite ( sqLiteDbApi )
 import Network.Hubbub.Queue
   ( AttemptCount(AttemptCount)
   , ContentType(ContentType)
@@ -35,18 +32,18 @@ import Network.Hubbub.TestHelpers
   , localHub
   , localTopic
   , localCallback
+  , subscription
   , topic )
 
 import Prelude (undefined)
+import Control.Applicative ((<$>))
 import Control.Monad (return,mapM,unless)
-import Data.Acid (AcidState,IsAcidic,query)
-import Data.Acid.Memory (openMemoryState)
-import Data.DateTime (addMinutes)
 import Data.Eq ((==))
 import Data.Function (($),(.))
+import Data.List (find)
 import Data.Maybe (Maybe(Nothing,Just))
-import Data.Map (lookup,fromList)
 import Data.Time (getCurrentTime)
+import Data.Tuple (fst,snd)
 import Network.HTTP.Types.Status (status500)
 import System.IO (IO)
 import System.Random (StdGen,getStdGen)
@@ -72,43 +69,44 @@ doSubscriptionEventSuite = testGroup "DoSubscriptionEvent"
   , testCase "unsubscribeError" unsubscribeErrorDoSubscriptionEventTest ]
 
 subscribeDoSubscriptionEventTest :: Assertion
-subscribeDoSubscriptionEventTest = acidTest goodSubscriber emptyDb test
+subscribeDoSubscriptionEventTest = internalTest goodSubscriber test
   where
-    test acid rng =
-      runSubscriptionEvent acid rng testSubscribe assertSubscription
+    test api rng =
+      runSubscriptionEvent api rng testSubscribe assertSubscription
   
 unsubscribeDoSubscriptionEventTest :: Assertion
-unsubscribeDoSubscriptionEventTest = acidTest goodSubscriber emptyDb test
+unsubscribeDoSubscriptionEventTest = internalTest goodSubscriber test
   where
-    test acid rng = do
-      runSubscriptionEvent acid rng testSubscribe assertSubscription
-      runSubscriptionEvent acid rng testUnsubscribe assertNoSubscription      
+    test api rng = do
+      runSubscriptionEvent api rng testSubscribe assertSubscription
+      runSubscriptionEvent api rng testUnsubscribe assertNoSubscription      
 
 subscribeErrorDoSubscriptionEventTest :: Assertion
-subscribeErrorDoSubscriptionEventTest = acidTest badSubscriber emptyDb test
+subscribeErrorDoSubscriptionEventTest = internalTest badSubscriber test
   where
-    test acid rng = 
-      runSubscriptionEvent acid rng testSubscribe assertNoSubscription
+    test api rng = 
+      runSubscriptionEvent api rng testSubscribe assertNoSubscription
 
 unsubscribeErrorDoSubscriptionEventTest :: Assertion
-unsubscribeErrorDoSubscriptionEventTest = acidTest badSubscriber db test
+unsubscribeErrorDoSubscriptionEventTest = internalTest badSubscriber test
   where
-    test acid rng = 
-      runSubscriptionEvent acid rng testUnsubscribe assertSubscription
-    db = SubscriptionDb (fromList [(localTopic [],topicSubs)])
-    topicSubs = fromList [(localCallback [],sub)] 
-    sub = Subscription undefined undefined undefined undefined
+    test api rng = do
+      tm <- getCurrentTime
+      assertRightEitherT $ insertSub api tm
+      runSubscriptionEvent api rng testUnsubscribe assertSubscription
+    insertSub a t =
+      addSubscription a (localTopic []) (localCallback []) (subscription t "")
 
 runSubscriptionEvent ::
-  AcidState SubscriptionDb ->
+  SubscriptionDbApi -> 
   StdGen ->
   SubscriptionEvent ->
   (Maybe Subscription -> Assertion) ->
   Assertion
-runSubscriptionEvent acid rng ev assertion = do
-  assertRightEitherT $ doSubscriptionEvent rng (acidDbApi acid) ev
-  subscription <- findLocalSubscription acid
-  assertion subscription  
+runSubscriptionEvent api rng ev assertion = do
+  assertRightEitherT $ doSubscriptionEvent rng api ev
+  sub <- findLocalSubscription api
+  assertion sub  
 
 assertSubscription :: Maybe Subscription -> Assertion
 assertSubscription Nothing = assertFailure "No subscription"
@@ -118,13 +116,17 @@ assertNoSubscription :: Maybe Subscription -> Assertion
 assertNoSubscription Nothing = return ()
 assertNoSubscription (Just _ ) = assertFailure "sub not removed!"
 
-findLocalSubscription :: AcidState SubscriptionDb -> IO (Maybe Subscription)
+findLocalSubscription :: SubscriptionDbApi -> IO (Maybe Subscription)
 findLocalSubscription = findSubscription (localTopic []) (localCallback [])
 
-findSubscription :: Topic -> Callback -> AcidState SubscriptionDb -> IO (Maybe Subscription)
-findSubscription t cb acid = do
-  res <- query acid (GetTopicSubscriptions t)
-  return (lookup cb res)
+findSubscription ::
+  Topic ->
+  Callback ->
+  SubscriptionDbApi ->
+  IO (Maybe Subscription)
+findSubscription t cb api = do
+  res <- assertRightEitherT $ getTopicSubscriptions api t
+  return $ snd <$> find ((== cb) . fst) res
 
 testSubscribe :: SubscriptionEvent
 testSubscribe =
@@ -148,12 +150,12 @@ doPublicationEventSuite = testGroup "DoPublicationEvent"
   [testCase "basicEvent" doPublicationEventTest]
 
 doPublicationEventTest :: Assertion
-doPublicationEventTest = do
-  db <- testDb
-  acidTest goodPublisher db test
+doPublicationEventTest = internalTest goodPublisher test
   where
-    test acid _ = do
-      distEvents <- assertRightEitherT $ doPublicationEvent (acidDbApi acid) ev
+    test api _ = do
+      tm <- getCurrentTime
+      _ <- assertRightEitherT $ insertSubs api tm
+      distEvents <- assertRightEitherT $ doPublicationEvent api ev
       distEvents @?= [
         dEv (callback "callbackB") Nothing
         , dEv (callback "callbackC") (Just . Secret $ "pw")
@@ -167,6 +169,17 @@ doPublicationEventTest = do
       (ResourceBody "foo,bar")
       sec
       (AttemptCount 1)
+    insertSubs a t = mapM (insertSub a t)
+      [ ("topicA","callbackA",Nothing)
+      , ("topicB","callbackB",Nothing)
+      , ("topicB","callbackC",Just $ Secret "pw")        
+      ]  
+    insertSub api tm (tn,cbn,sec) =
+      addSubscription
+      api
+      (topic tn)
+      (callback cbn)
+      (Subscription tm tm sec Nothing)
 
       
 
@@ -210,33 +223,32 @@ doDistributionEventTest = scottyTest subscribers $ do
       (AttemptCount 1)
 
 
-testDb :: IO SubscriptionDb
-testDb = do
-  tm <- getCurrentTime
-  let exp = addMinutes 30 tm
-  return . SubscriptionDb $ fromList
-    [ (topic "topicA",
-       fromList [
-         (callback "callbackA",
-          Subscription tm exp Nothing (Just . From $ "userA"))
-         ])
-    , (topic "topicB",
-       fromList [
-         (callback "callbackB",
-          Subscription tm exp Nothing (Just . From $ "userB"))
-         , (callback "callbackC",
-            Subscription tm exp (Just . Secret $ "pw") (Just . From $ "userC"))
-         ])]
+-- testDb :: IO SubscriptionDb
+-- testDb = do
+--   tm <- getCurrentTime
+--   let exp = addMinutes 30 tm
+--   return . SubscriptionDb $ fromList
+--     [ (topic "topicA",
+--        fromList [
+--          (callback "callbackA",
+--           Subscription tm exp Nothing (Just . From $ "userA"))
+--          ])
+--     , (topic "topicB",
+--        fromList [
+--          (callback "callbackB",
+--           Subscription tm exp Nothing (Just . From $ "userB"))
+--          , (callback "callbackC",
+--             Subscription tm exp (Just . Secret $ "pw") (Just . From $ "userC"))
+--          ])]
 
-acidTest :: (IsAcidic s) =>
+internalTest ::
   ScottyM () ->
-  s ->
-  (AcidState s -> StdGen -> Assertion) ->
+  (SubscriptionDbApi -> StdGen -> Assertion) ->
   Assertion
-acidTest sm init assert = scottyTest sm $ do
-  acid <- openMemoryState init
-  rng  <- getStdGen
-  assert acid rng
+internalTest sm assert = scottyTest sm $ do
+  dbApi <- sqLiteDbApi Nothing
+  rng   <- getStdGen
+  assert dbApi rng
 
 goodSubscriber :: ScottyM ()
 goodSubscriber = get "/callback" $ do

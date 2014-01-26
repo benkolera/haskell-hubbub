@@ -2,12 +2,10 @@ module Network.Hubbub.Test (hubbubSuite) where
 
 import Network.Hubbub
   ( Callback(Callback)
-  , HttpResource(HttpResource)
   , HubbubConfig(HubbubConfig)
   , HubbubAcidConfig(HubbubAcidConfig)
   , LeaseSeconds(LeaseSeconds)
   , Secret(Secret)
-  , ServerUrl(ServerUrl)
   , Topic(Topic)
   , initializeHubbubAcid
   , shutdownHubbub
@@ -35,7 +33,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (TestTree,testGroup)
-import Test.Tasty.HUnit (assertFailure,testCase,Assertion,(@?=))
+import Test.Tasty.HUnit (testCase,Assertion,(@?=))
 import Web.Scotty (ScottyM,get,body,html,param,post,reqHeader,text)
 
 hubbubSuite :: TestTree

@@ -5,13 +5,13 @@ import Network.Hubbub
   , From(From)
   , HttpResource(HttpResource)
   , HubbubConfig(HubbubConfig)
-  , HubbubAcidConfig(HubbubAcidConfig)
+  , HubbubSqLiteConfig(HubbubSqLiteConfig)
   , HubbubEnv
   , LeaseSeconds(LeaseSeconds)
   , Secret(Secret)
   , ServerUrl(ServerUrl)
   , Topic(Topic)
-  , initializeHubbubAcid
+  , initializeHubbubSqLite
   , httpResourceFromText
   , shutdownHubbub
   , subscribe
@@ -50,7 +50,7 @@ port = 5000
 
 main :: IO ()
 main = do
-  hubbub <- initializeHubbubAcid hubbubConf hubbubAcidConfig
+  hubbub <- initializeHubbubSqLite hubbubConf hubbubSqLiteConfig
   scotty port (scottyM hubbub)
   shutdownHubbub hubbub
 
@@ -61,10 +61,10 @@ main = do
       post "/subscriptions" $ doSubscriptionHandler hubbub
       post "/publish"       $ publishHandler hubbub
 
-    hubbubConf        = HubbubConfig 1 1 1 serverUrl defaultLeaseTmOut
-    hubbubAcidConfig  = HubbubAcidConfig . Just $ "/tmp/"
-    defaultLeaseTmOut = LeaseSeconds 1800
-    serverUrl         = ServerUrl (HttpResource False "localhost" port "" [])
+    hubbubConf         = HubbubConfig 1 1 1 serverUrl defaultLeaseTmOut
+    hubbubSqLiteConfig = HubbubSqLiteConfig . Just $ "/tmp/hubbub.db"
+    defaultLeaseTmOut  = LeaseSeconds 1800
+    serverUrl          = ServerUrl (HttpResource False "localhost" port "" [])
 
 
 listSubscriptionHandler :: HubbubEnv -> ActionM ()

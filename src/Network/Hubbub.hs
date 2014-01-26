@@ -4,12 +4,14 @@ module Network.Hubbub
   , HttpResource(HttpResource)
   , HubbubConfig(HubbubConfig)
   , HubbubAcidConfig(HubbubAcidConfig)
+  , HubbubSqLiteConfig(HubbubSqLiteConfig)    
   , HubbubEnv
   , LeaseSeconds(LeaseSeconds)
   , Secret(Secret)
   , ServerUrl(ServerUrl)
   , Topic(Topic)
   , initializeHubbubAcid
+  , initializeHubbubSqLite
   , httpResourceFromText
   , publish
   , shutdownHubbub
@@ -47,14 +49,15 @@ import Network.Hubbub.SubscriptionDb
   , Topic(Topic)
   , httpResourceFromText
   , shutdownDb )
-import Network.Hubbub.SubscriptionDb.Acid (acidDbApi,emptyDb)
+
+import Network.Hubbub.SubscriptionDb.Acid (acidDbApi)
+import Network.Hubbub.SubscriptionDb.SqLite (sqLiteDbApi)
 
 import Prelude (Int)
 import Control.Concurrent (ThreadId,forkIO)
 import Control.Concurrent.STM(TQueue,atomically)
-import Control.Monad (replicateM,return,mapM_)
+import Control.Monad (replicateM,return,mapM_,(>>=))
 import Control.Monad.IO.Class (liftIO)
-import Data.Acid (openLocalState,openLocalStateFrom)
 import Data.Function (($),(.))
 import Data.List (concat)
 import Data.Maybe (Maybe,maybe,fromMaybe)
@@ -73,8 +76,12 @@ data HubbubConfig = HubbubConfig {
   }
 
 data HubbubAcidConfig = HubbubAcidConfig {
-  filePath :: Maybe FilePath
+  acidFilePath :: Maybe FilePath
   }
+
+data HubbubSqLiteConfig = HubbubSqLiteConfig {
+  sqLiteFilePath :: Maybe FilePath
+  }                        
 
 data HubbubEnv = HubbubEnv {
   _subscriptionThreadIds::[ThreadId]
@@ -88,9 +95,12 @@ data HubbubEnv = HubbubEnv {
   }
 
 initializeHubbubAcid :: HubbubConfig -> HubbubAcidConfig -> IO HubbubEnv
-initializeHubbubAcid conf acidConf = do
-  acid <- maybe openLocalState openLocalStateFrom (filePath acidConf) emptyDb
-  initializeHubbub conf $ acidDbApi acid
+initializeHubbubAcid conf acidConf = 
+  acidDbApi (acidFilePath acidConf) >>= initializeHubbub conf 
+
+initializeHubbubSqLite :: HubbubConfig -> HubbubSqLiteConfig -> IO HubbubEnv
+initializeHubbubSqLite conf sqLiteConf = 
+  sqLiteDbApi (sqLiteFilePath sqLiteConf) >>= initializeHubbub conf
 
 shutdownHubbub :: HubbubEnv -> IO ()
 shutdownHubbub = shutdownDb . subscriptionDbApi

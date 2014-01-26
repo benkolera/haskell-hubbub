@@ -7,10 +7,13 @@ module Network.Hubbub.SubscriptionDb
   , Secret (Secret)
   , Subscription (Subscription)
   , SubscriptionDbApi(SubscriptionDbApi)
+  , SubscriptionDbApiResult
   , Topic (Topic)
   , addSubscription
   , removeSubscription
+  , expireSubscriptions
   , getTopicSubscriptions
+  , getAllSubscriptions
   , fromCallback
   , fromFrom
   , fromSecret
@@ -117,6 +120,9 @@ data SubscriptionDbApi = SubscriptionDbApi {
      Topic -> Callback -> SubscriptionDbApiResult ()
   , getTopicSubscriptions ::
      Topic -> SubscriptionDbApiResult [(Callback,Subscription)]
+  , getAllSubscriptions ::
+     SubscriptionDbApiResult [(Topic,Callback,Subscription)]
+  , expireSubscriptions :: UTCTime -> SubscriptionDbApiResult ()
   , shutdownDb :: IO ()
   }
 

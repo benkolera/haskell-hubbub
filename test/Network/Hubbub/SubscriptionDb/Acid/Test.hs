@@ -1,19 +1,21 @@
 module Network.Hubbub.SubscriptionDb.Acid.Test (subscriptionDbAcidSuite) where
 
-import Network.Hubbub.SubscriptionDb
-  ( Subscription(Subscription)
-  , From(From) )
 import Network.Hubbub.SubscriptionDb.Acid
-import Network.Hubbub.TestHelpers
+  ( addSubscription
+  , allSubscriptions
+  , emptyDb
+  , flattenSubs
+  , getAllSubscriptions
+  , getTopicSubscriptions
+  )
+import Network.Hubbub.TestHelpers (topic,callback,subscription)
 
 import Prelude (($),(.),Maybe(Nothing,Just),fst,snd)
 import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.HUnit ((@=?),testCase,Assertion)
-import Data.DateTime (addSeconds)
 import qualified Data.Map as Map
-import Data.Time (getCurrentTime,UTCTime)
+import Data.Time (getCurrentTime)
 import Data.Acid.Memory.Pure (runUpdate,liftQuery,runQuery)
-import Data.Text (Text)
 
 subscriptionDbAcidSuite :: TestTree
 subscriptionDbAcidSuite = testGroup "SubscriptionDbAcid" [
@@ -46,7 +48,7 @@ testGetMissingSub = Map.empty @=? runQuery q emptyDb
 testGetAll :: Assertion
 testGetAll = do
   time <- getCurrentTime
-  fst (res time) @=? (allSubscriptions . snd $ res time)
+  fst (res time) @=? (flattenSubs . allSubscriptions . snd $ res time)
   where
     res time = runUpdate (prog time) emptyDb
     prog t = do
@@ -56,5 +58,4 @@ testGetAll = do
       liftQuery getAllSubscriptions
     addSub n t = addSubscription (topic n) (callback n) $ subscription t "foo"
 
-subscription :: UTCTime -> Text -> Subscription
-subscription t n = Subscription t (addSeconds 300 t) Nothing (Just . From $ n)
+
