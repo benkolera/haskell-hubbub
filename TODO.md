@@ -4,4 +4,4 @@ Mandatory
 
 Optional
 ========
-* Expiration of subscriptions.
+* None! :)

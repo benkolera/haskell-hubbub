@@ -47,9 +47,9 @@ that should be a great boost to get into haskell and do something productive.
 
 * Basic Haskell Syntax
 * Project Structure & Cabal Setup
-* Unit testing via Tasty (HUnit and Quickcheck)
+* Unit testing via Tasty (HUnit)
 * Acid State for persisting program state to disk in a transactional way.
-* 
+* sqlite-simple for interacting with SQLite 
 * Using STM to do very simple in memory message queuing.
 * Http Conduit for making HTTP Requests
 * Scotty for producing a HTTP API
