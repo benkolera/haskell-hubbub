@@ -9,18 +9,23 @@ import Control.Concurrent.STM (atomically)
 import Control.Concurrent.STM.TVar (TVar,newTVar,readTVar,modifyTVar)
 import Control.Monad (return,forM_)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (encode)
+import Data.Aeson (encode,decode)
 import Data.Aeson.TH (deriveJSON,defaultOptions)
 import Data.Eq (Eq)
 import Data.Function (($),(.),const)
 import Data.Functor (fmap)
 import Data.List ((++))
 import Data.Map (Map,insert,delete,lookup,empty,elems)
-import Data.Maybe (Maybe(Just,Nothing))
+import Data.Maybe (Maybe(Just,Nothing),fromMaybe)
 import Data.Text (Text)
 import Data.UUID (UUID)
 import Data.UUID.V4 (nextRandom)
-import Network.HTTP.Conduit (parseUrl,withManager,http,urlEncodedBody)
+import Network.HTTP.Conduit
+  ( parseUrl
+  , withManager
+  , http
+  , urlEncodedBody
+  , simpleHttp )
 import Network.Wai (Application)
 import Network.Wai.Middleware.Static (staticPolicy,noDots,(>->),addBase)
 import qualified Network.Wai.Handler.Warp as Warp
@@ -68,6 +73,8 @@ socketApp state pending = do
   uuid <- nextRandom
   liftIO $ atomically $ modifyTVar state (insert uuid conn)
   putStrLn $ "websocket connected with uuid: " ++ show uuid
+  posts <- getPosts
+  distributeToConn posts conn
   clientLoop state uuid
 
 clientLoop :: TVar ServerState -> UUID -> IO ()
@@ -80,7 +87,11 @@ clientLoop state uuid = do
   where
     disconnect (WS.ConnectionClosed) = 
       liftIO $ atomically $ modifyTVar state (delete uuid)
-      
+
+getPosts :: IO [Post]
+getPosts = fromMaybe [] . decode <$> simpleHttp "http://localhost:5001/json"
+
+    
 subscribe :: IO ()
 subscribe = do
   request <- parseUrl "http://localhost:5000/subscriptions" 
@@ -98,7 +109,8 @@ subscribe = do
 distribute :: TVar ServerState -> [Post] -> IO ()
 distribute state posts = do
   connections <- fmap elems . liftIO . atomically . readTVar $ state
-  forM_ connections distributeToConn
-  where
-    distributeToConn conn = WS.sendTextData conn (encode posts)
+  forM_ connections (distributeToConn posts)
+
+distributeToConn :: [Post] -> WS.Connection -> IO ()
+distributeToConn posts conn = WS.sendTextData conn (encode posts)
     

@@ -5,7 +5,6 @@
   <link rel="stylesheet" href="/css/main.css">
   <script src="/js/jquery-2.1.0.min.js"></script>
   <script src="/js/ICanHaz.min.js"></script>
-  <script src="/js/client.js"></script>
 
   <script id="posts" type="text/html">
     <div>
@@ -25,7 +24,6 @@
         var host = window.location.hostname;
         if(host == '') host = 'localhost';
         var uri = 'ws://' + host + ':5002';
-
         var Socket = "MozWebSocket" in window ? MozWebSocket : WebSocket;
         var out = new Socket(uri);
         out.onmessage = function(e) { 

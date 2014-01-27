@@ -31,6 +31,7 @@ executable hubbub
   main-is:              Main.hs
 
   build-depends:        base ==4.6.*
+                        , errors
                         , http-types
                         , hubbub
                         , resourcet

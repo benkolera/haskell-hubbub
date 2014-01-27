@@ -11,8 +11,11 @@ import Network.Hubbub
   , Secret(Secret)
   , ServerUrl(ServerUrl)
   , Topic(Topic)
+  , Subscription(Subscription)
   , initializeHubbubSqLite
   , httpResourceFromText
+  , httpResourceToText
+  , listSubscriptions
   , shutdownHubbub
   , subscribe
   , unsubscribe
@@ -20,6 +23,7 @@ import Network.Hubbub
 
 import Prelude (Int)
 import Control.Applicative ((<$>),(<*>))
+import Control.Error (either,runEitherT)
 import Control.Monad (return,(=<<))
 import Control.Monad.IO.Class (liftIO)
 import Data.Bool (Bool(False))
@@ -28,15 +32,17 @@ import Data.Function (($),(.),const)
 import Data.Maybe (Maybe(Nothing,Just),maybe,fromMaybe)
 import Data.String (String)
 import qualified Data.Text.Lazy as TL
-import Network.HTTP.Types.Status (status400,status202)
+import Network.HTTP.Types.Status (status400,status202,status500)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import System.IO (IO)
+import Text.Show (show)
 
 import Web.Scotty
   ( ActionM
   , Parsable
   , get
   , middleware
+  , html
   , param
   , post
   , rescue
@@ -68,7 +74,33 @@ main = do
 
 
 listSubscriptionHandler :: HubbubEnv -> ActionM ()
-listSubscriptionHandler _ = text "haha not implemented"
+listSubscriptionHandler env = do
+  subEither <- liftIO . runEitherT $ listSubscriptions env
+  either
+    error
+    (html . TL.concat . fmap subToLine)
+    subEither
+  where 
+    error err = do
+      status status500
+      text (TL.pack $ show err)
+    subToLine (Topic t,Callback cb,Subscription st ex sec from) =
+      TL.intercalate " "
+      [ "<p>Topic:"
+      , TL.fromStrict $ httpResourceToText t
+      , "Callback:"
+      , TL.fromStrict $ httpResourceToText cb
+      , "Started at:"
+      , TL.pack . show $ st
+      , "Expires at:"
+      , TL.pack . show $ ex
+      , "Secret:"
+      , maybe "NONE" maskSecret sec
+      , "From:"
+      , maybe "NONE" (\ (From f) -> TL.fromStrict f) from
+      , "</p>" ]
+
+    maskSecret (Secret sec) = TL.map (const '*') . TL.fromStrict $ sec
 
 data Mode = Subscribe | Unsubscribe 
 
