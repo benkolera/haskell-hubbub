@@ -75,6 +75,7 @@ socketApp state pending = do
   putStrLn $ "websocket connected with uuid: " ++ show uuid
   posts <- getPosts
   distributeToConn posts conn
+  subscribe
   clientLoop state uuid
 
 clientLoop :: TVar ServerState -> UUID -> IO ()

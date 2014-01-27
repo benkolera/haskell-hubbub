@@ -33,7 +33,7 @@ import Web.Scotty
   , middleware
   , param
   , redirect
-  , file )
+  )
 
 import Network.HTTP.Conduit (parseUrl,withManager,http,urlEncodedBody)
 
@@ -68,22 +68,23 @@ main = do
       ps <- liftIO $ query acid GetPosts
       blaze . postsHtml $ ps
 
-    get "/json" $ do
-      ps <- liftIO $ query acid GetPosts
-      json ps
-      
-    get "/edit" $ file "www/publisher/edit.html"
-
-    post "/clear" $ do
-      _ <- liftIO $ update acid ClearPosts
-      liftIO publish
-      
-    post "/edit" $ do
+    post "/" $ do
       sub <- TL.toStrict <$> param "subject" 
       bod <- TL.toStrict <$> param "body"
       _ <- liftIO $ update acid $ AddPost (Post sub bod)
       liftIO publish
-      redirect "/"
+      redirect "/"      
+
+    get "/json" $ do
+      ps <- liftIO $ query acid GetPosts
+      json ps
+      
+    get "/clear" $ do
+      _ <- liftIO $ update acid ClearPosts
+      liftIO publish
+      redirect "/"      
+      
+
 
 publish :: IO ()
 publish = do
@@ -104,9 +105,16 @@ postsHtml ps = H.html $ do
     H.link H.! A.rel "stylesheet" H.! A.href "/css/main.css"    
   H.body $ 
     H.div H.! A.class_ "content" $ do
-      H.h1 "Posts"
-      H.a H.! A.href "/edit" $ "Add post"
+      H.h1 "Publisher"
+      addPostHtml
       forM_ ps postHtml
+
+addPostHtml :: H.Html
+addPostHtml = H.div H.! A.class_ "post" $ 
+  H.form H.! A.action "/" H.! A.method "POST" $ do
+    H.input H.! A.name "subject" H.! A.type_ "input" H.! A.placeholder "Subject"
+    H.textarea "" H.! A.name "body" H.! A.rows "5" H.! A.cols "23"
+    H.input H.! A.type_ "submit" H.! A.value "Add Post"
 
 postHtml :: Post -> H.Html    
 postHtml (Post s b ) = H.div H.! A.class_ "post" $ do

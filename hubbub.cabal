@@ -70,6 +70,7 @@ executable hubbub-mock-publisher
   default-extensions:   OverloadedStrings
                         NoImplicitPrelude 
 
+
 executable hubbub-mock-subscriber
   if !flag(testing)
     Buildable:          True          
@@ -77,7 +78,6 @@ executable hubbub-mock-subscriber
     Buildable:          False
 
   main-is:              Subscriber.hs
-
   build-depends:        base ==4.6.*
                         , aeson
                         , containers
@@ -103,7 +103,7 @@ executable hubbub-mock-subscriber
   default-extensions:   OverloadedStrings
                         NoImplicitPrelude 
 
-library
+library 
   if !flag(testing)
     exposed-modules:    Network.Hubbub
   else
