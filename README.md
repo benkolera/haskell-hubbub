@@ -65,9 +65,11 @@ cabal configure --flag=mocks
 cabal build
 ```
 * Then run:
-** dist/hubbub/hubbub for the hubbub server
-** dist/hubbub-mock-publisher for the mock publisher
-** dist/hubbub-mock-subscriber for the mock subscriber
+```
+dist/hubbub/hubbub          # for the hubbub server
+dist/hubbub-mock-publisher  # for the mock publisher
+dist/hubbub-mock-subscriber #for the mock subscriber
+```
 * At this point, point your browser (Chrome is best) at http://localhost:5001 and http://localhost:5002 to poke the subscriber and publisher.
 
 (Note that the subscriber and web page don't do anything in the way of restablishing connections or leases when they expire, but if you refresh the page it'll resubscribe to the hubbub server and should get updates again.)
