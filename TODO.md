@@ -1,7 +1,0 @@
-Mandatory
-=========
-* None! :)
-
-Optional
-========
-* None! :)
