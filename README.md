@@ -57,11 +57,13 @@ Running the apps
 
 * First you'll need GHC and the haskell platform (or just cabal-install at the least): http://www.haskell.org/platform/
 * In this project:
-   cabal sandbox init
-   # this installs and compiles all deps. Will take a bit
-   cabal install --flag=mocks --only-dependencies
-   cabal configure --flag=mocks 
-   cabal build
+```
+cabal sandbox init
+# this installs and compiles all deps. Will take a bit
+cabal install --flag=mocks --only-dependencies
+cabal configure --flag=mocks 
+cabal build
+```
 * Then run:
 ** dist/hubbub/hubbub for the hubbub server
 ** dist/hubbub-mock-publisher for the mock publisher
@@ -76,9 +78,10 @@ Running the tests
 -----------------
 * First you'll need GHC and the haskell platform (or just cabal-install at the least): http://www.haskell.org/platform/
 * In this project:
-   cabal sandbox init (if you haven't already done this. Only need to do it once)
-   cabal install --flag=tests --enable-tests --only-dependencies (Will install dependencies plus the test ones too)
-   cabal configure --flag=tests --enable-tests
-   cabal test
-
+```
+cabal sandbox init (if you haven't already done this. Only need to do it once)
+cabal install --flag=tests --enable-tests --only-dependencies (Will install dependencies plus the test ones too)
+cabal configure --flag=tests --enable-tests
+cabal test
+```
 (If you're fiddling with the code and on linux, the cabal-test-loop script may be useful. It recompiles the code and runs the tests when you make a change. On OSX you can do a replicate inotifywait with http://hackage.haskell.org/package/hobbes)
