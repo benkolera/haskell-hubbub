@@ -68,7 +68,7 @@ cabal build
 ```
 dist/hubbub/hubbub          # for the hubbub server
 dist/hubbub-mock-publisher  # for the mock publisher
-dist/hubbub-mock-subscriber #for the mock subscriber
+dist/hubbub-mock-subscriber # for the mock subscriber
 ```
 * At this point, point your browser (Chrome is best) at http://localhost:5001 and http://localhost:5002 to poke the subscriber and publisher.
 
