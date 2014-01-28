@@ -76,6 +76,10 @@ import System.Random (StdGen,getStdGen)
 import Text.Printf (printf)
 import Text.Show (Show,show)
 
+--------------------------------------------------------------------------------
+-- Define configuration data types
+--------------------------------------------------------------------------------
+
 data HubbubConfig = HubbubConfig {
   subscriptionThreads::Int
   , publicationThreads::Int
@@ -92,6 +96,8 @@ data HubbubSqLiteConfig = HubbubSqLiteConfig {
   sqLiteFilePath :: Maybe FilePath
   }                        
 
+-- Plus all the state our code needs to run 
+
 data HubbubEnv = HubbubEnv {
   _subscriptionThreadIds::[ThreadId]
   , _publicationThreadIds::[ThreadId]
@@ -104,6 +110,10 @@ data HubbubEnv = HubbubEnv {
   , envDefaultLeaseTimeout::LeaseSeconds    
   }
 
+--------------------------------------------------------------------------------
+-- Client callable function to initialise either acidstate or sqlite
+--------------------------------------------------------------------------------
+
 initializeHubbubAcid :: HubbubConfig -> HubbubAcidConfig -> IO HubbubEnv
 initializeHubbubAcid conf acidConf = 
   acidDbApi (acidFilePath acidConf) >>= initializeHubbub conf 
@@ -111,6 +121,10 @@ initializeHubbubAcid conf acidConf =
 initializeHubbubSqLite :: HubbubConfig -> HubbubSqLiteConfig -> IO HubbubEnv
 initializeHubbubSqLite conf sqLiteConf = 
   sqLiteDbApi (sqLiteFilePath sqLiteConf) >>= initializeHubbub conf
+
+--------------------------------------------------------------------------------  
+-- And the functions that the client calls (shutdown,publish,subscribe,list)
+--------------------------------------------------------------------------------
 
 shutdownHubbub :: HubbubEnv -> IO ()
 shutdownHubbub = shutdownDb . subscriptionDbApi
@@ -145,9 +159,6 @@ listSubscriptions = getAllSubscriptions . subscriptionDbApi
 --- Private Stuff Below
 --------------------------------------------------------------------------------
 
-firstAttempt :: AttemptCount
-firstAttempt = AttemptCount 0
-
 initializeHubbub :: HubbubConfig -> SubscriptionDbApi -> IO HubbubEnv
 initializeHubbub c dbApi = do
   rng <- getStdGen
@@ -162,9 +173,15 @@ initializeHubbub c dbApi = do
   where
     sUrl = serverUrl c
     lto  = defaultLeaseTimeout c
-    
 
-subscriptionThread :: StdGen -> SubscriptionDbApi -> TQueue SubscriptionEvent -> IO ()
+startNThreads :: Int -> IO () -> IO [ThreadId]
+startNThreads n = replicateM n . forkIO 
+
+subscriptionThread ::
+  StdGen ->
+  SubscriptionDbApi ->
+  TQueue SubscriptionEvent ->
+  IO ()
 subscriptionThread rng api = subscriptionLoop handleEvent logError
   where
     handleEvent = doSubscriptionEvent rng api
@@ -212,5 +229,7 @@ logError event err retryDelay = putStrLn $ concat
       ]
     retryDiscarded = " It has failed too many times and has been discarded."
 
-startNThreads :: Int -> IO () -> IO [ThreadId]
-startNThreads n = replicateM n . forkIO 
+firstAttempt :: AttemptCount
+firstAttempt = AttemptCount 0
+
+--------------------------------------------------------------------------------

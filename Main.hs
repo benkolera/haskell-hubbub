@@ -51,6 +51,10 @@ import Web.Scotty
   , status
   , text )
 
+--------------------------------------------------------------------------------
+-- Define routes & setup hubbub ------------------------------------------------
+--------------------------------------------------------------------------------
+
 port :: Int
 port = 5000
 
@@ -60,7 +64,7 @@ main = do
   scotty port (scottyM hubbub)
   shutdownHubbub hubbub
 
-  where 
+  where
     scottyM hubbub = do
       middleware logStdoutDev
       get "/subscriptions"  $ listSubscriptionHandler hubbub
@@ -72,6 +76,9 @@ main = do
     defaultLeaseTmOut  = LeaseSeconds 1800
     serverUrl          = ServerUrl (HttpResource False "localhost" port "" [])
 
+--------------------------------------------------------------------------------
+-- ListSubscription ActionM ----------------------------------------------------
+--------------------------------------------------------------------------------
 
 listSubscriptionHandler :: HubbubEnv -> ActionM ()
 listSubscriptionHandler env = do
@@ -80,7 +87,7 @@ listSubscriptionHandler env = do
     error
     (html . TL.concat . fmap subToLine)
     subEither
-  where 
+  where
     error err = do
       status status500
       text (TL.pack $ show err)
@@ -102,14 +109,18 @@ listSubscriptionHandler env = do
 
     maskSecret (Secret sec) = TL.map (const '*') . TL.fromStrict $ sec
 
-data Mode = Subscribe | Unsubscribe 
+--------------------------------------------------------------------------------
+-- DoSubscription ActionM ------------------------------------------------------
+--------------------------------------------------------------------------------
+
+data Mode = Subscribe | Unsubscribe
 
 doSubscriptionHandler :: HubbubEnv -> ActionM ()
 doSubscriptionHandler env = do
-  mode <- (parseMode =<<) <$> optionalParam "hub.mode" 
+  mode <- (parseMode =<<) <$> optionalParam "hub.mode"
   top  <- topicParam
   cb   <- callbackParam
-  
+
   fromMaybe (badRequest "") $ doSubscription <$> mode <*> top <*> cb
 
   where
@@ -119,23 +130,31 @@ doSubscriptionHandler env = do
     parseMode _             = Nothing
 
     doSubscription Subscribe   = doSubscribe
-    doSubscription Unsubscribe = doUnsubscribe    
-    
+    doSubscription Unsubscribe = doUnsubscribe
+
     doSubscribe top cb = do
       ls   <- fmap LeaseSeconds <$> optionalParam "hub.lease_seconds"
       sec  <- fmap Secret  <$> optionalParam "hub.secret"
-      from <- fmap (From . TL.toStrict) <$> reqHeader "From"            
+      from <- fmap (From . TL.toStrict) <$> reqHeader "From"
       liftIO $ subscribe env top cb ls sec from
       status status202
-      
+
     doUnsubscribe top cb = do
       liftIO $ unsubscribe env top cb
       status status202
+
+--------------------------------------------------------------------------------
+-- DoPublish ActionM
+--------------------------------------------------------------------------------
 
 publishHandler :: HubbubEnv -> ActionM ()
 publishHandler hubbub = do
   topic <- topicParam
   maybe (badRequest "Invalid topic") (liftIO . publish hubbub) topic
+
+--------------------------------------------------------------------------------
+-- Parsing Parameters ----------------------------------------------------------
+--------------------------------------------------------------------------------
 
 topicParam :: ActionM (Maybe Topic)
 topicParam = fmap Topic <$> httpResourceParam "hub.topic"
@@ -144,7 +163,7 @@ callbackParam :: ActionM (Maybe Callback)
 callbackParam = fmap Callback <$> httpResourceParam "hub.callback"
 
 httpResourceParam :: TL.Text -> ActionM (Maybe HttpResource)
-httpResourceParam = fmap (httpResourceFromText . TL.toStrict =<<) . optionalParam 
+httpResourceParam = fmap (httpResourceFromText . TL.toStrict =<<) . optionalParam
 
 optionalParam :: Parsable a => TL.Text -> ActionM (Maybe a)
 optionalParam n = fmap Just (param n) `rescue` const (return Nothing)

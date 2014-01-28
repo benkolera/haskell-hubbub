@@ -44,6 +44,10 @@ import System.IO (IO)
 import System.Random (RandomGen)
 import Text.Show (Show)
 
+--------------------------------------------------------------------------------
+-- doSubscriptionEvent
+--------------------------------------------------------------------------------
+
 data DoSubscriptionEventError =
   DoSubHttpError HttpError
   | DoSubApiError SomeException
@@ -54,6 +58,8 @@ doSubscriptionEvent :: RandomGen r =>
   SubscriptionDbApi ->
   SubscriptionEvent ->
   EitherT DoSubscriptionEventError IO ()
+
+-- For a subscribe event
 doSubscriptionEvent rng api ev@(Subscribe t cb ls _ s f) = do
   time <- liftIO getCurrentTime
   ok   <- fmapLT DoSubHttpError $ verifySubscriptionEvent rng ev
@@ -62,10 +68,14 @@ doSubscriptionEvent rng api ev@(Subscribe t cb ls _ s f) = do
     sub tm = Subscription tm (exp tm) s f
     exp = addSeconds (fromLeaseSeconds ls)
 
+-- For an Unsubscribe event
 doSubscriptionEvent rng api ev@(Unsubscribe t cb _) = do
   ok   <- fmapLT DoSubHttpError $ verifySubscriptionEvent rng ev
   unless (not ok) $ fmapLT DoSubApiError $ removeSubscription api t cb
 
+--------------------------------------------------------------------------------
+-- doPublicationEvent
+--------------------------------------------------------------------------------  
 
 data DoPublicationEventError =
   DoPubHttpError HttpError
@@ -90,6 +100,10 @@ doPublicationEvent api ev = do
       bd
       sec
       (AttemptCount 1)
+
+--------------------------------------------------------------------------------
+-- doDistributionEvent 
+--------------------------------------------------------------------------------
 
 data DoDistributionEventError = DoDistHttpError HttpError deriving (Show)
 

@@ -157,6 +157,9 @@ distributeResource ev (ServerUrl serverRes) =
 -- Verifies a subscription event with the subscriber
 --------------------------------------------------------------------------------
 
+-- Returns Right true if the subscriber verifies
+-- Returns Right false if the subscriber 404ed or failed to challenge respond.
+-- Returns Left HttpError if there was any other issue (should retry)    
 verifySubscriptionEvent :: RandomGen r =>
   r ->
   SubscriptionEvent ->
@@ -180,13 +183,18 @@ verifySubscriptionEvent rng ev = case ev of
           ("hub.challenge",challenge) :
           maybeToList (fmap leaseSecondHeader ls)
           )
+    -- Filters out hub headers    
     isHubHeader (hn,_) = hn `elem` 
       [ "hub.mode","hub.topic","hub.challenge","hub.lease_seconds"]
     leaseSecondHeader (LeaseSeconds s) = ("hub.lease_seconds",pack . show $ s)
+
+    -- Check that 200 Ok and body matches challenge.
     checkChallenge c =
       ((statusCode . responseStatus $ c) == 200) &&
       (responseBody c == BsL.fromStrict (encodeUtf8 challenge))
     challenge = pack $ map chr $ take 20 (randomRs (65,90) rng)
+
+    -- Discards the error and returns True if 404 (status for refusal)
     hush404 :: HttpError -> HttpCall Bool
     hush404 (NotFound _) = right False
     hush404 httpErr      = left httpErr
