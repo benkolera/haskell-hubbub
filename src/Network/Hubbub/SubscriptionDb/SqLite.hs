@@ -56,6 +56,9 @@ import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.ToField (ToField,toField)  
 import System.IO (IO,FilePath)
 
+--------------------------------------------------------------------------------
+-- From/To Row Declarations ----------------------------------------------------
+--------------------------------------------------------------------------------
 
 instance FromRow Subscription where
   fromRow = Subscription <$> field <*> field <*> field <*> field
@@ -108,26 +111,9 @@ instance FromRow SubscriptionRow where
 instance ToRow SubscriptionRow where
   toRow (SubscriptionRow t cb s) = toField t : toField cb : toRow s
 
-open :: String -> IO Connection
-open fp = do
-  conn <- SqL.open fp
-  createSchema conn
-  return conn
-
-withConnection :: String -> (Connection -> IO a) -> IO a
-withConnection fp f = SqL.withConnection fp $ \conn -> do
-  createSchema conn
-  f conn
-
-createSchema :: Connection -> IO ()
-createSchema conn = do
-  t <- query
-    conn
-    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-    (Only ("subscription"::String)) :: IO [Only Text]
-  unless (not $ null t) $ 
-    execute_ conn ddl
-  return ()
+--------------------------------------------------------------------------------
+-- Api Implementation ----------------------------------------------------------
+--------------------------------------------------------------------------------
 
 sqLiteDbApi :: Maybe FilePath -> IO SubscriptionDbApi
 sqLiteDbApi fp = do
@@ -182,6 +168,31 @@ expireSubscriptions c now = syncIO . execute c q $ Only now
   where
     q = " DELETE FROM subscription WHERE expires_at < ? "
 
+--------------------------------------------------------------------------------
+-- Various Helper Functions ----------------------------------------------------
+--------------------------------------------------------------------------------
+
+open :: String -> IO Connection
+open fp = do
+  conn <- SqL.open fp
+  createSchema conn
+  return conn
+
+withConnection :: String -> (Connection -> IO a) -> IO a
+withConnection fp f = SqL.withConnection fp $ \conn -> do
+  createSchema conn
+  f conn
+
+createSchema :: Connection -> IO ()
+createSchema conn = do
+  t <- query
+    conn
+    "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+    (Only ("subscription"::String)) :: IO [Only Text]
+  unless (not $ null t) $ 
+    execute_ conn ddl
+  return ()
+
 ddl :: Query
 ddl =
   "CREATE TABLE subscription (\
@@ -193,3 +204,5 @@ ddl =
   \ , from_user TEXT \
   \ , PRIMARY KEY (topic,callback) \
   \ )"
+
+--------------------------------------------------------------------------------

@@ -22,6 +22,11 @@ Flag testing
   Description:          Set this to true if we don't want to build the lib and exe 
                         to speed up testing (don't want to build the lib twice). 
 
+Flag mocks
+  Default: False
+  Description:          Set this to true if you want to build the mock subscriber and 
+                        publisher binaries.
+
 executable hubbub
   if !flag(testing)
     Buildable:          True          
@@ -45,7 +50,7 @@ executable hubbub
                         NoImplicitPrelude 
 
 executable hubbub-mock-publisher
-  if !flag(testing)
+  if flag(mocks)
     Buildable:          True          
   else
     Buildable:          False
@@ -72,7 +77,7 @@ executable hubbub-mock-publisher
 
 
 executable hubbub-mock-subscriber
-  if !flag(testing)
+  if flag(mocks)
     Buildable:          True          
   else
     Buildable:          False
@@ -80,6 +85,7 @@ executable hubbub-mock-subscriber
   main-is:              Subscriber.hs
   build-depends:        base ==4.6.*
                         , aeson
+                        , bytestring
                         , containers
                         , http-conduit
                         , http-types

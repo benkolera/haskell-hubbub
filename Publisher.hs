@@ -37,13 +37,15 @@ import Web.Scotty
 
 import Network.HTTP.Conduit (parseUrl,withManager,http,urlEncodedBody)
 
+--------------------------------------------------------------------------------
+-- AcidState DB ----------------------------------------------------------------
+--------------------------------------------------------------------------------
+
 data Post = Post { subject::Text , body::Text } deriving (Typeable,Show,Eq)
 $(deriveSafeCopy 0 'base ''Post)
 data Db = Db { posts::[Post] } deriving (Typeable,Show,Eq)
 $(deriveSafeCopy 0 'base ''Db)
 
-$(deriveToJSON defaultOptions ''Post)
-  
 getPosts :: Query Db [Post]
 getPosts = posts <$> ask
 
@@ -54,16 +56,28 @@ clearPosts :: Update Db ()
 clearPosts = put ( Db [] )
   
 $(makeAcidic ''Db ['getPosts,'addPost,'clearPosts])
-  
+
+--------------------------------------------------------------------------------
+-- Scotty Application ----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+-- Generates a ToJson instance with Aeson template haskell.
+$(deriveToJSON defaultOptions ''Post)
+                                      
 port :: Int
 port = 5001
 
 main :: IO ()
 main = do
+  -- Open the DB, initialising it to an empty list of posts if needed.
   acid <- openLocalState $ Db []
+  
   scotty port $ do
+    -- Log all requests to std out.
     middleware logStdoutDev
+    -- This wont work if cabal installed. Can use data-dir instead.
     middleware $ staticPolicy (noDots >-> addBase "www/static")
+    
     get "/" $ do
       ps <- liftIO $ query acid GetPosts
       blaze . postsHtml $ ps
@@ -77,24 +91,39 @@ main = do
 
     get "/json" $ do
       ps <- liftIO $ query acid GetPosts
+
+      -- json :: ToJson a => a -> ActionM (). Uses instance created above.
       json ps
       
     get "/clear" $ do
       _ <- liftIO $ update acid ClearPosts
       liftIO publish
       redirect "/"      
-      
 
+--------------------------------------------------------------------------------
+-- Publish via Http Conduit ----------------------------------------------------
+--------------------------------------------------------------------------------
+
+-- Buyer beware. This code throws exceptions. We'll tidy these up in Hubbub
+-- but for now Scotty will catch them and give a 500 so that's OK enough here.
 
 publish :: IO ()
 publish = do
-  request <- parseUrl "http://localhost:5000/publish" 
+  -- Will throw an exception if the url is not valid.
+  request <- parseUrl "http://localhost:5000/publish"
+  
   withManager $ \manager -> do
+    -- Will throw an exception if status is not 2xx
     _ <- http (postRequest request) manager
     return ()
 
   where
+    -- Add the post form parameters that the hub is expecting in the post.
     postRequest = urlEncodedBody [("hub.topic","http://localhost:5001/json")]
+
+--------------------------------------------------------------------------------
+-- Create web page with blaze    
+--------------------------------------------------------------------------------
 
 blaze :: H.Html -> ActionM ()
 blaze = html . renderHtml
@@ -120,3 +149,5 @@ postHtml :: Post -> H.Html
 postHtml (Post s b ) = H.div H.! A.class_ "post" $ do
   H.h2 $ H.toHtml s
   H.pre $ H.toHtml b
+
+--------------------------------------------------------------------------------

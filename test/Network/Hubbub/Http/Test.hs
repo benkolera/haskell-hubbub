@@ -321,7 +321,7 @@ callbackM cbAction =
     mode      <- param "hub.mode"
     topic     <- param "hub.topic"
     challenge <- param "hub.challenge"
-    ls        <- optParam "hub.leaseSeconds"
+    ls        <- optParam "hub.lease_seconds"
     cbAction mode topic challenge ls
 
 type DistributeHandler =

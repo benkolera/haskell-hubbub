@@ -4,19 +4,20 @@ files="*.cabal *.hs src"
 exclude="(\.#.*|flymake).hs$"
 
 do_build() {
-  cabal build && (
-    restart "hubbub"
-    restart "hubbub-mock-publisher"
-    restart "hubbub-mock-subscriber"
-  )
+  cabal build;
+  if test $? ; then
+      killall -q "hubbub-mock-subscriber" "hubbub" "hubbub-mock-publisher";
+      start "hubbub-mock-subscriber" 
+      start "hubbub"; 
+      start "hubbub-mock-publisher";
+  fi;
 }
 
-restart() { 
-  killall -q $1 
-  dist/build/$1/$1 &
+start() { 
+  "dist/build/$1/$1" &
 }
 
-cabal configure && do_build
+cabal configure --flag="mocks" && do_build
 
 while $(inotifywait -qq -r --exclude $exclude -e modify -e create -e move $files) ; do
   do_build

@@ -27,6 +27,10 @@ import Test.Tasty (testGroup, TestTree)
 import Test.Tasty.HUnit ((@?=),Assertion,testCase)
 import Text.Show (Show,show)
 
+--------------------------------------------------------------------------------
+-- Our TestTasty.TestTree
+--------------------------------------------------------------------------------
+
 queueSuite :: TestTree
 queueSuite = testGroup "Queue" 
   [ testCase "subscribe" testSubscribe
@@ -35,22 +39,32 @@ queueSuite = testGroup "Queue"
   , testCase "retryable" testRetryable
   ]
 
+--------------------------------------------------------------------------------
+-- These tests test whether the event gets put into the action handler or not
+--------------------------------------------------------------------------------
+
 loopTest :: (Show a,Eq a) =>
-  STM (TQueue a)  -> 
-  (TQueue a -> a -> STM ()) ->
-  ((a -> EitherT e IO ()) ->
-   (a -> e -> Maybe RetryDelay -> IO ()) ->
-   TQueue a ->
+  STM (TQueue a)  ->                         -- A stm that will create the queue
+  (TQueue a -> a -> STM ()) ->               -- Enqueue STM function
+  ((a -> EitherT e IO ()) ->                 -- The event loop to test
+   (a -> e -> Maybe RetryDelay -> IO ()) ->  
+   TQueue a ->                                
    IO ()
   ) ->
-  a ->
+  a ->                                       -- The event to expect
   Assertion
-loopTest mkQueue enqueue loop e = do  
+loopTest mkQueue enqueue loop e = do
+  -- Create a mutable var to capture the emitted event
   mVar  <- newEmptyMVar
-  q     <- atomically mkQueue 
+  -- Make the queue
+  q     <- atomically mkQueue
+  -- Run the loop with a handler that just sets the mutable var
   _     <- forkIO $ loop (liftIO . putMVar mVar) (\ _ _ _ -> return ()) q
+  -- Run the enqueue action
   atomically $ enqueue q e
+  -- Wait at most 500 ms for the event
   event <- timeout 5000000 $ takeMVar mVar
+  -- And make sure it is the one that was expected.
   Just e @?= event
 
 testSubscribe :: Assertion 
@@ -100,6 +114,12 @@ distributionEvent n =
   Nothing
   (AttemptCount 1)
 
+--------------------------------------------------------------------------------
+-- Testing the retry functionality
+--------------------------------------------------------------------------------
+
+-- Make a new type just for testing and implement Retryable.
+
 data MockRetryable = MockRetryable AttemptCount deriving (Show)
 instance Retryable MockRetryable where
   attempts (MockRetryable (AttemptCount c)) = c
@@ -113,17 +133,27 @@ instance Retryable MockRetryable where
 
 testRetryable :: Assertion
 testRetryable = do
+  -- Create a new mutable var for the string log of what we expect to happen
   mVar  <- newMVar ([]::[String])
   q     <- atomically newTQueue
+
+  -- Run the loop with handlers that append to the log
   _     <- forkIO $ queueLoop (handleEvent mVar) (handleError mVar) q
+
+  -- Push an event onto the queue
   atomically $ writeTQueue q . MockRetryable . AttemptCount $ 1
+  -- Wait some time for the logs to accumulate. 100ms is plenty enough.
   threadDelay 100000
   logs <- timeout 100000 $ takeMVar mVar
+  -- And make sure we got the logs that we'd expect
   logs @?= Just expectedLogs
   where
+    -- This always fails after it writes the event to the log
     handleEvent mVar ev = do
       liftIO . modifyMVar_ mVar $ return . (("Event: " ++ show ev):)
       left ("Foobarred"::String)
+
+    -- This just appends to the log
     handleError mVar ev er rd =
       modifyMVar_ mVar $ return . (retryToMsg ev er rd :)
     retryToMsg _ er =
@@ -131,9 +161,11 @@ testRetryable = do
       (er ++ " -> Event Dropped")
       (\ (RetryDelayMillis ms) ->
         unwords [er,"-> event requeued in",show ms,"millis"] )
+
     expectedLogs = [
       "Foobarred -> Event Dropped"
       , "Event: MockRetryable (AttemptCount 2)"
       ,"Foobarred -> event requeued in 50 millis"
       ,"Event: MockRetryable (AttemptCount 1)" ]
-    
+
+--------------------------------------------------------------------------------

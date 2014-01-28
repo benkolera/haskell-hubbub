@@ -21,6 +21,10 @@ import Data.Time (getCurrentTime)
 import Test.Tasty (TestTree,testGroup)
 import Test.Tasty.HUnit (Assertion,testCase,(@?=))
 
+--------------------------------------------------------------------------------
+-- Define a Test.Tasty.TestTree for our tests ----------------------------------
+--------------------------------------------------------------------------------
+
 subscriptionDbSqLiteSuite :: TestTree
 subscriptionDbSqLiteSuite = testGroup "SqLite"
   [ testCase "openDb"   testOpenDb
@@ -30,14 +34,21 @@ subscriptionDbSqLiteSuite = testGroup "SqLite"
   , testCase "expire"   testExpire    
   ]
 
+--------------------------------------------------------------------------------
+-- Below is all HUnit ----------------------------------------------------------
+--------------------------------------------------------------------------------
+
+-- Make sure opening the DB and applying the schema doesn't error.
 testOpenDb :: Assertion
 testOpenDb = withTempDbConn (const $ return ())
 
+-- Make sure that adding a subscription doesn't throw an error.
 testAdd :: Assertion
 testAdd = withTempDbConn $ \ conn -> do
   tm <- getCurrentTime
   assertRightEitherT $ add conn (topic "a") (callback "1") $ subscription tm "u"
 
+-- Make sure that getting all subscriptions returns what we added.
 testGetAll :: Assertion
 testGetAll = withTempDbConn $ \ conn -> do
   tm <- getCurrentTime
@@ -48,6 +59,7 @@ testGetAll = withTempDbConn $ \ conn -> do
     (topic "a",callback "1",subscription tm "u")
     , (topic "a",callback "2",subscription tm "v") ]
 
+-- Ensure that getting topic subscriptions returns what was added to that topic.
 testGetTopic :: Assertion
 testGetTopic = withTempDbConn $ \ conn -> do
   tm <- getCurrentTime
@@ -59,6 +71,8 @@ testGetTopic = withTempDbConn $ \ conn -> do
     (callback "1",subscription tm "u")
     , (callback "2",subscription tm "v") ]
 
+-- Ensure that running expireSubscriptions kills subscription expired before
+-- that time.
 testExpire :: Assertion
 testExpire = withTempDbConn $ \ con -> do
   tm    <- getCurrentTime
@@ -68,6 +82,8 @@ testExpire = withTempDbConn $ \ con -> do
   assertRightEitherT $ expireSubscriptions con tm
   subs <- assertRightEitherT $ getAllSubscriptions con
   subs @?= [(topic "a",callback "1",subscription tm "u")]
+
+--------------------------------------------------------------------------------
 
 withTempDbConn :: (Connection -> IO a) -> IO a
 withTempDbConn = withConnection ":memory:" 

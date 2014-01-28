@@ -54,7 +54,7 @@ import Network.Hubbub.SubscriptionDb
 
 import Prelude (Float,Integer,(/),(-),(+),(*),fromIntegral)
 import Control.Error (EitherT,runEitherT)
-import Control.Monad (return)
+import Control.Monad (return,forever)
 import Control.Concurrent (threadDelay,forkIO)
 import Control.Concurrent.STM(STM,atomically)
 import Control.Concurrent.STM.TQueue(TQueue,writeTQueue,readTQueue,newTQueue)
@@ -68,6 +68,10 @@ import Data.Maybe (Maybe,maybe)
 import Safe (atMay)
 import Text.Show (Show)
 import System.IO (IO)
+
+--------------------------------------------------------------------------------
+-- DataTypes and Retryable Class -----------------------------------------------
+--------------------------------------------------------------------------------
 
 newtype LeaseSeconds = LeaseSeconds Integer deriving (Show,Eq)
 fromLeaseSeconds :: LeaseSeconds -> Integer
@@ -84,6 +88,36 @@ fromResourceBody (ResourceBody rb) = rb
 newtype ContentType  = ContentType Bs.ByteString deriving (Show,Eq)
 fromContentType :: ContentType -> Bs.ByteString
 fromContentType (ContentType ct) = ct
+
+data SubscriptionEvent =
+  Subscribe {
+    subscribeTopic:: Topic
+    , subscribeCallback::Callback
+    , subscribeLeaseSeconds::LeaseSeconds
+    , subscribeAttemptCount::AttemptCount
+    , subscribeSecret:: Maybe Secret
+    , subscribeFrom :: Maybe From
+    }
+  | Unsubscribe {
+    unsubscribeTopic::Topic
+    , unsubscribeCallback::Callback
+    , unsubscribeAttemptCount::AttemptCount
+    }
+  deriving (Show,Eq)
+
+data PublicationEvent = PublicationEvent {
+  publicationTopic::Topic
+  , publicationAttemptCount::AttemptCount
+  } deriving (Eq,Show)
+
+data DistributionEvent = DistributionEvent {
+  distributionTopic::Topic                    
+  , distributionCallback::Callback                 
+  , distributionContentType::Maybe ContentType
+  , distributionBody::ResourceBody             
+  , distributionSecret::Maybe Secret
+  , distributionAttemptCount::AttemptCount
+  } deriving (Eq,Show)
 
 newtype RetryDelay = RetryDelayMillis Integer deriving (Show,Eq)
 retryDelayPicos :: RetryDelay -> Integer
@@ -105,24 +139,6 @@ class Retryable a where
     where 
       retrySchedule = [100,500,1000,5000,10000]
 
-
-
-data SubscriptionEvent =
-  Subscribe {
-    subscribeTopic:: Topic
-    , subscribeCallback::Callback
-    , subscribeLeaseSeconds::LeaseSeconds
-    , subscribeAttemptCount::AttemptCount
-    , subscribeSecret:: Maybe Secret
-    , subscribeFrom :: Maybe From
-    }
-  | Unsubscribe {
-    unsubscribeTopic::Topic
-    , unsubscribeCallback::Callback
-    , unsubscribeAttemptCount::AttemptCount
-    }
-  deriving (Show,Eq)
-
 instance Retryable SubscriptionEvent where
   attempts ev@(Subscribe {}) = fromAttemptCount . subscribeAttemptCount $ ev
   attempts ev@(Unsubscribe {}) = fromAttemptCount . unsubscribeAttemptCount $ ev
@@ -130,31 +146,53 @@ instance Retryable SubscriptionEvent where
     ev { subscribeAttemptCount = AttemptCount . (+1) . fromAttemptCount $ c }
   incrementAttempts ev@(Unsubscribe { unsubscribeAttemptCount = c }) =
     ev { unsubscribeAttemptCount = AttemptCount . (+1) . fromAttemptCount $ c }
-  
-data PublicationEvent = PublicationEvent {
-  publicationTopic::Topic
-  , publicationAttemptCount::AttemptCount
-  } deriving (Eq,Show)
 
 instance Retryable PublicationEvent where
   attempts (PublicationEvent _ (AttemptCount c)) = c
   incrementAttempts (PublicationEvent t (AttemptCount c)) =
     PublicationEvent t (AttemptCount $ c + 1)
 
-data DistributionEvent = DistributionEvent {
-  distributionTopic::Topic                    
-  , distributionCallback::Callback                 
-  , distributionContentType::Maybe ContentType
-  , distributionBody::ResourceBody             
-  , distributionSecret::Maybe Secret
-  , distributionAttemptCount::AttemptCount
-  } deriving (Eq,Show)
-
 instance Retryable DistributionEvent where
   attempts DistributionEvent { distributionAttemptCount = AttemptCount c } = c
   incrementAttempts ev@DistributionEvent{}  =
     ev { distributionAttemptCount = AttemptCount . (+1) . attempts $ ev }
 
+--------------------------------------------------------------------------------
+-- Queue Loop ------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+queueLoop :: Retryable a =>                 -- For any event that is retryable
+  (a -> EitherT e IO ()) ->                 -- An io action that will action it.
+  (a -> e -> Maybe RetryDelay -> IO ()) ->  -- Error handling io action
+  TQueue a ->                               -- And the queue
+  IO ()
+queueLoop doEvent logErr q = forever $ do
+  -- Atomically grab the value off of the queue. Will block until there is one.
+  ev  <- atomically . readTQueue $ q
+  -- Run the action that will run the event.
+  res <- runEitherT $ doEvent ev
+  case res of
+    -- If it was okay, do nothing.
+    (Right _) -> return ()
+    -- If it was an error
+    (Left e)  ->
+      let newEv = incrementAttempts ev
+          retry = retryDelay newEv
+      in do
+        -- Requeue in the future it if it can be requeued
+        maybe (return ()) (requeue newEv) retry
+        -- And log the error to the handler.
+        logErr newEv e retry 
+  where
+    requeue ev delay = fmap (const ()) . forkIO $ do
+      threadDelay . fromIntegral . retryDelayPicos $ delay
+      atomically (writeTQueue q ev)
+
+-----------------
+-- These functions aren't very useful except for getting rid of the polymorphism
+-- for things using the queue.      
+-----------------
+      
 emptySubscriptionQueue :: STM (TQueue SubscriptionEvent)
 emptySubscriptionQueue = newTQueue
 
@@ -172,29 +210,6 @@ emptyDistributionQueue = newTQueue
 
 distribute :: TQueue DistributionEvent -> DistributionEvent -> STM ()
 distribute = writeTQueue
-
-queueLoop :: Retryable a =>
-  (a -> EitherT e IO ()) ->
-  (a -> e -> Maybe RetryDelay -> IO ()) ->
-  TQueue a ->
-  IO ()
-queueLoop doEvent logErr q = loop
-  where
-    loop = do
-      ev  <- atomically . readTQueue $ q
-      res <- runEitherT $ doEvent ev
-      case res of
-        (Right _) -> return ()
-        (Left e)  ->
-          let newEv = incrementAttempts ev
-              retry = retryDelay newEv
-          in do
-            maybe (return ()) (requeue newEv) retry 
-            logErr newEv e retry 
-      loop
-    requeue ev delay = fmap (const ()) . forkIO $ do
-      threadDelay . fromIntegral . retryDelayPicos $ delay
-      atomically (writeTQueue q ev)
 
 subscriptionLoop ::
   (SubscriptionEvent -> EitherT e IO ()) ->
@@ -216,3 +231,5 @@ distributionLoop ::
   TQueue DistributionEvent ->
   IO ()
 distributionLoop = queueLoop
+
+--------------------------------------------------------------------------------

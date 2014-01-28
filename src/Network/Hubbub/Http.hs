@@ -50,7 +50,7 @@ import Data.Function (($),(.),const)
 import Data.Functor (fmap)
 import Data.Eq ((==),Eq)
 import Data.List (map,take,find,filter,elem,(++))
-import Data.Maybe (Maybe(Just,Nothing),fromMaybe,maybe)
+import Data.Maybe (Maybe(Just,Nothing),maybe,maybeToList)
 import Data.Ord ((<=),(>=))
 import Data.Text (Text,pack)
 import Data.Text.Encoding (encodeUtf8)
@@ -79,6 +79,10 @@ import Network.HTTP.Types ( Status(Status) , statusCode , hContentType)
 import Text.Show (Show,show)
 import System.Random (RandomGen,randomRs)
 
+--------------------------------------------------------------------------------
+-- HTTP Defined Types 
+--------------------------------------------------------------------------------
+
 data HttpError =
   ConduitException HttpException 
   | NotFound Request
@@ -89,6 +93,10 @@ data HttpError =
 newtype ServerUrl = ServerUrl HttpResource
 
 type HttpCall a = EitherT HttpError IO a
+
+--------------------------------------------------------------------------------
+-- Grabs the current body and content type for a publication event -------------
+--------------------------------------------------------------------------------
 
 getPublishedResource ::
   PublicationEvent ->
@@ -101,28 +109,38 @@ getPublishedResource ev =
     contentType :: Response BsL.ByteString -> Maybe Bs.ByteString
     contentType = fmap snd . find ((== hContentType) . fst) . responseHeaders
 
+--------------------------------------------------------------------------------
+-- Distributes the updated resource to all subscribers -------------------------
+--------------------------------------------------------------------------------
+
 distributeResource :: DistributionEvent -> ServerUrl -> HttpCall ()
 distributeResource ev (ServerUrl serverRes) =
   const () <$> doHttp publishReq
   where
+    -- Stuff for marshalling callback,body,content-type,topic from event
     resource = httpResourceToRequest . fromCallback . distributionCallback $ ev
     body     = fromResourceBody . distributionBody $ ev
-    contentT = fromMaybe "text/html" . fmap fromContentType . distributionContentType $ ev
+    contentT = maybe "text/html" fromContentType . distributionContentType $ ev
     topicRes = fromTopic . distributionTopic $ ev
-    
+
+    -- Make headers for content type, links and an option hmac signature
     headers  =
       (hContentType,contentT) :
       (mk "Link", linkHeaderValue) :
-      maybe [] ((:[]) . hmacHeader) hmacSig
-      
+      maybeToList hmacHeader
+
+    -- And contruct the request out of all of that.  
     publishReq = resource {
       method = "POST" 
       , requestBody = RequestBodyLBS body
       , requestHeaders = headers
       }
-                 
-    hmacSig = fmap (`hmacBody` body) . distributionSecret $ ev
-    hmacHeader sig = (mk "X-Hub-Signature", sig)
+
+    -- Optionally make a hmac signature header pair.
+    hmacHeader = fmap (hmacHdrNm . (`hmacBody` body)) . distributionSecret $ ev
+    hmacHdrNm sig = (mk "X-Hub-Signature", sig)
+
+    -- For generating the self (topic) and hub (serverUrl) links.
     linkHeaderValue = Bs.intercalate "," [
       resToLink topicRes "self"
       , resToLink serverRes "hub"
@@ -135,30 +153,36 @@ distributeResource ev (ServerUrl serverRes) =
       , "\""
       ]
         
-      
+--------------------------------------------------------------------------------
+-- Verifies a subscription event with the subscriber
+--------------------------------------------------------------------------------
+
 verifySubscriptionEvent :: RandomGen r =>
   r ->
   SubscriptionEvent ->
   HttpCall Bool
 verifySubscriptionEvent rng ev = case ev of
+  --Pattern match on constructor to decide mode and lease seconds.
   (Subscribe t c ls _ _ _) -> check t c "subscribe" (Just ls)
   (Unsubscribe t c _)      -> check t c "unsubscribe" Nothing
   where
     check :: Topic -> Callback -> Text -> Maybe LeaseSeconds -> HttpCall Bool
     check (Topic t) (Callback c) m ls = handleT hush404 $
       checkChallenge <$> doHttp (httpResourceToRequest $ addQueryParams t m ls c)
-      
-    -- TODO: This is crap. Should write a lens for HttpResource.
+
+    -- We need to preserve query params of the callback while making ours
+    -- override the cb if they overlap.
     addQueryParams t m ls (HttpResource s h prt pth qps) =
       HttpResource s h prt pth $
         filter (not . isHubHeader) qps ++ (
           ("hub.mode", m) :
           ("hub.topic", httpResourceToText t ) :
           ("hub.challenge",challenge) :
-          maybe [] ((:[]) . leaseSecondHeader) ls
+          maybeToList (fmap leaseSecondHeader ls)
           )
-    isHubHeader (hn,_) = hn `elem` ["hub.mode","hub.topic","hub.challenge"]
-    leaseSecondHeader (LeaseSeconds s) = ("hub.leaseSeconds",pack . show $ s)
+    isHubHeader (hn,_) = hn `elem` 
+      [ "hub.mode","hub.topic","hub.challenge","hub.lease_seconds"]
+    leaseSecondHeader (LeaseSeconds s) = ("hub.lease_seconds",pack . show $ s)
     checkChallenge c =
       ((statusCode . responseStatus $ c) == 200) &&
       (responseBody c == BsL.fromStrict (encodeUtf8 challenge))
@@ -166,6 +190,10 @@ verifySubscriptionEvent rng ev = case ev of
     hush404 :: HttpError -> HttpCall Bool
     hush404 (NotFound _) = right False
     hush404 httpErr      = left httpErr
+
+--------------------------------------------------------------------------------
+-- Helper stuff ----------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 httpResourceToRequest :: HttpResource -> Request
 httpResourceToRequest res@(HttpResource sec h prt pth _) = def {
@@ -190,3 +218,5 @@ doHttp req = do
       (Status c   s) -> if c >= 200 && c <= 299
                         then right res
                         else left $ NotOk req c s 
+
+--------------------------------------------------------------------------------

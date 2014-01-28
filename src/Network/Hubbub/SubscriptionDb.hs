@@ -49,6 +49,10 @@ import Network.URL
   , importURL )
 import System.IO (IO)  
 
+--------------------------------------------------------------------------------
+-- Datatype Definitions --------------------------------------------------------
+--------------------------------------------------------------------------------
+
 -- | Bottles up all of the things we need to make a HTTP request to either the
 --   Publishing server or the subscriber.     
 data HttpResource = 
@@ -59,6 +63,51 @@ data HttpResource =
     Text            -- ^ Path    
     [(Text,Text)]   -- ^ QueryParams
     deriving (Eq,Show,Typeable,Ord)
+
+newtype Topic = Topic HttpResource deriving (Show,Typeable,Ord,Eq)
+fromTopic :: Topic -> HttpResource
+fromTopic (Topic t) = t  
+
+newtype Callback = Callback HttpResource deriving (Show,Typeable,Ord,Eq)
+fromCallback :: Callback -> HttpResource
+fromCallback (Callback t) = t
+
+newtype Secret = Secret Text deriving (Show,Typeable,Ord,Eq)
+fromSecret :: Secret -> Text
+fromSecret (Secret t) = t  
+
+newtype From = From Text deriving (Show,Typeable,Ord,Eq)
+fromFrom :: From -> Text
+fromFrom (From t) = t    
+
+data Subscription = Subscription
+  UTCTime         -- ^ StartedAt
+  UTCTime         -- ^ ExpiresAt
+  (Maybe Secret)  -- ^ Secret
+  (Maybe From)    -- ^ From
+  deriving (Show,Typeable,Eq)
+
+--------------------------------------------------------------------------------
+-- 'Interface' definition
+--------------------------------------------------------------------------------
+
+type SubscriptionDbApiResult = EitherT SomeException IO
+data SubscriptionDbApi = SubscriptionDbApi {
+  addSubscription ::
+     Topic -> Callback -> Subscription -> SubscriptionDbApiResult ()
+  , removeSubscription ::
+     Topic -> Callback -> SubscriptionDbApiResult ()
+  , getTopicSubscriptions ::
+     Topic -> SubscriptionDbApiResult [(Callback,Subscription)]
+  , getAllSubscriptions ::
+     SubscriptionDbApiResult [(Topic,Callback,Subscription)]
+  , expireSubscriptions :: UTCTime -> SubscriptionDbApiResult ()
+  , shutdownDb :: IO ()
+  }
+
+--------------------------------------------------------------------------------
+-- Going to and from Text with HttpResource ------------------------------------
+--------------------------------------------------------------------------------
 
 httpResourceFromText :: Text -> Maybe HttpResource
 httpResourceFromText t = do
@@ -88,41 +137,3 @@ httpResourceToText (HttpResource sec h prt pth qps) =
 httpResourceQueryString :: HttpResource -> Text
 httpResourceQueryString (HttpResource _ _ _ _ qps ) =
   pack . exportParams . map (join (***) unpack) $ qps
-
-newtype Topic = Topic HttpResource deriving (Show,Typeable,Ord,Eq)
-fromTopic :: Topic -> HttpResource
-fromTopic (Topic t) = t  
-
-newtype Callback = Callback HttpResource deriving (Show,Typeable,Ord,Eq)
-fromCallback :: Callback -> HttpResource
-fromCallback (Callback t) = t
-
-newtype Secret = Secret Text deriving (Show,Typeable,Ord,Eq)
-fromSecret :: Secret -> Text
-fromSecret (Secret t) = t  
-
-newtype From = From Text deriving (Show,Typeable,Ord,Eq)
-fromFrom :: From -> Text
-fromFrom (From t) = t    
-
-data Subscription = Subscription
-  UTCTime         -- ^ StartedAt
-  UTCTime         -- ^ ExpiresAt
-  (Maybe Secret)  -- ^ Secret
-  (Maybe From)    -- ^ From
-  deriving (Show,Typeable,Eq)
-
-type SubscriptionDbApiResult = EitherT SomeException IO
-data SubscriptionDbApi = SubscriptionDbApi {
-  addSubscription ::
-     Topic -> Callback -> Subscription -> SubscriptionDbApiResult ()
-  , removeSubscription ::
-     Topic -> Callback -> SubscriptionDbApiResult ()
-  , getTopicSubscriptions ::
-     Topic -> SubscriptionDbApiResult [(Callback,Subscription)]
-  , getAllSubscriptions ::
-     SubscriptionDbApiResult [(Topic,Callback,Subscription)]
-  , expireSubscriptions :: UTCTime -> SubscriptionDbApiResult ()
-  , shutdownDb :: IO ()
-  }
-

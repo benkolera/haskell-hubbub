@@ -54,6 +54,9 @@ import Data.Typeable (Typeable)
 import System.IO (IO,FilePath)
 import Text.Show (Show)
 
+--------------------------------------------------------------------------------
+-- Derive safecopy instances for our data --------------------------------------
+--------------------------------------------------------------------------------
 
 $(deriveSafeCopy 0 'base ''HttpResource)
 $(deriveSafeCopy 0 'base ''Topic)
@@ -72,6 +75,9 @@ $(deriveSafeCopy 0 'base ''SubscriptionDb)
 emptyDb :: SubscriptionDb
 emptyDb = SubscriptionDb empty
 
+--------------------------------------------------------------------------------
+-- AcidState Transactions ------------------------------------------------------
+--------------------------------------------------------------------------------
 
 getTopicSubscriptions :: Topic -> Query SubscriptionDb TopicSubscriptions
 getTopicSubscriptions t =
@@ -82,13 +88,13 @@ getAllSubscriptions = flattenSubs . allSubscriptions <$> ask
 
 expireSubscriptions :: UTCTime -> Update SubscriptionDb ()
 expireSubscriptions now = do
-  subs <- liftQuery (flattenSubs . allSubscriptions <$> ask)
+  subs <- liftQuery getAllSubscriptions
   mapM_ remove . filter ((now >) . expiresAt) $ subs
   where
     remove (t,cb,_) = removeSubscription t cb
     expiresAt (_,_,Subscription _ e _ _) = e
 
-flattenSubs :: Map Topic TopicSubscriptions -> [(Topic,Callback,Subscription)]    
+flattenSubs :: Map Topic TopicSubscriptions -> [(Topic,Callback,Subscription)]
 flattenSubs m = do
   (t,subs) <- assocs m
   (c,s)    <- assocs subs
@@ -114,6 +120,10 @@ $(makeAcidic ''SubscriptionDb [
   ,'expireSubscriptions
   ])
 
+--------------------------------------------------------------------------------
+-- Api Implementation ----------------------------------------------------------
+--------------------------------------------------------------------------------
+
 acidDbApi :: Maybe FilePath -> IO SubscriptionDbApi
 acidDbApi fp = do
   acid <- maybe openLocalState openLocalStateFrom fp emptyDb
@@ -125,3 +135,5 @@ acidDbApi fp = do
     expire now  = syncIO . update acid $ ExpireSubscriptions now
     shutdown    = closeAcidState acid
   return $ SubscriptionDbApi add remove getSubs allSubs expire shutdown        
+
+--------------------------------------------------------------------------------
