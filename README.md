@@ -41,10 +41,6 @@ subscribe using open hubs.
 Topics Covered
 --------------
 
-Probably talk for an hour and a half about this doing a exploration of the
-codebase (or live coding?) which does a shallow dive of the following topics
-that should be a great boost to get into haskell and do something productive. 
-
 * Basic Haskell Syntax
 * Project Structure & Cabal Setup
 * Unit testing via Tasty (HUnit)
@@ -56,3 +52,33 @@ that should be a great boost to get into haskell and do something productive.
 * JSON Serialisation
 * Websockets for pushing data to a browser client.
 
+Running the apps
+----------------
+
+* First you'll need GHC and the haskell platform (or just cabal-install at the least): http://www.haskell.org/platform/
+* In this project:
+   cabal sandbox init
+   # this installs and compiles all deps. Will take a bit
+   cabal install --flag=mocks --only-dependencies
+   cabal configure --flag=mocks 
+   cabal build
+* Then run:
+** dist/hubbub/hubbub for the hubbub server
+** dist/hubbub-mock-publisher for the mock publisher
+** dist/hubbub-mock-subscriber for the mock subscriber
+* At this point, point your browser (Chrome is best) at http://localhost:5001 and http://localhost:5002 to poke the subscriber and publisher.
+
+(Note that the subscriber and web page don't do anything in the way of restablishing connections or leases when they expire, but if you refresh the page it'll resubscribe to the hubbub server and should get updates again.)
+
+(If you're fiddling with the code and on linux, the cabal-build-loop script may be useful. It recompiles the code and restarts the servers when you make a change. On OSX you can replicate inotifywait with hobbes http://hackage.haskell.org/package/hobbes)
+
+Running the tests
+-----------------
+* First you'll need GHC and the haskell platform (or just cabal-install at the least): http://www.haskell.org/platform/
+* In this project:
+   cabal sandbox init (if you haven't already done this. Only need to do it once)
+   cabal install --flag=tests --enable-tests --only-dependencies (Will install dependencies plus the test ones too)
+   cabal configure --flag=tests --enable-tests
+   cabal test
+
+(If you're fiddling with the code and on linux, the cabal-test-loop script may be useful. It recompiles the code and runs the tests when you make a change. On OSX you can do a replicate inotifywait with http://hackage.haskell.org/package/hobbes)
