@@ -101,8 +101,8 @@ executable hubbub-mock-subscriber
                         , wai
                         , wai-extra
                         , wai-middleware-static
-                        , wai-websockets
-                        , warp
+                        , wai-websockets < 2.1
+                        , warp < 2.1
                            
   ghc-options:          -Wall -Werror
   default-language:     Haskell2010
